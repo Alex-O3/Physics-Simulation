@@ -10,6 +10,8 @@ class Triangle { //this class is closely tied to the Rigidbody class
     private double inertia;
 
     private int[] indices = new int[3];
+    public boolean[] enabled = new boolean[]{true, true, true};
+    public boolean partOfFace = false;
     private double[] normalX = new double[3];
     private double[] normalY = new double[3];
     private int parentRigidbody;
@@ -106,7 +108,7 @@ class Triangle { //this class is closely tied to the Rigidbody class
         double[] MTV = new double[]{Double.NaN, Double.NaN};
         double[] pointOfContact = new double[]{Double.NaN, Double.NaN}; //initialize the point of contact to NaN
         //first check the normals of this triangle
-        for (int i = 0; i < 3; i = i + 1) {
+        if (!otherTriangle.partOfFace) for (int i = 0; i < 3; i = i + 1) {
             //first three are the points of this triangle on the normal axis and the second three are the same but for the other triangle
             dotProductResults[0] = normalX[i] * (x[0] + Rigidbody.get(parentRigidbody).getPosX()) + normalY[i] * (y[0] + Rigidbody.get(parentRigidbody).getPosY());
             dotProductResults[1] = normalX[i] * (x[1] + Rigidbody.get(parentRigidbody).getPosX()) + normalY[i] * (y[1] + Rigidbody.get(parentRigidbody).getPosY());
@@ -161,7 +163,11 @@ class Triangle { //this class is closely tied to the Rigidbody class
                 intersecting = false;
                 break;
             }
-            else if (mod(indices[(i + 1) % 3] - indices[i], Rigidbody.get(parentRigidbody).getNumPoints()) == 1) {
+            else if (mod(indices[(i + 1) % 3] - indices[i], Rigidbody.get(parentRigidbody).getNumPoints()) == 1 && enabled[i]) {
+                if (partOfFace && !(Rigidbody.get(otherTriangle.parentRigidbody).getVX() * normalX[i] + Rigidbody.get(otherTriangle.parentRigidbody).getVY() * normalY[i] < 0.0)){
+                    intersecting = false;
+                    break;
+                }
                 double temp = Math.abs(dotMax - otherDotMin);
                 if (Math.abs(otherDotMax - dotMin) < temp) temp = Math.abs(otherDotMax - dotMin);
                 if (Double.isNaN(overlap) || temp < overlap) {
@@ -185,6 +191,7 @@ class Triangle { //this class is closely tied to the Rigidbody class
             }
         }
         //then check the normals of the other triangle
+        if (!otherTriangle.enabled[0] && !otherTriangle.enabled[1] && !otherTriangle.enabled[2]) intersecting = false;
         if (intersecting) for (int i = 0; i < 3; i = i + 1) {
             //first three are the points of this triangle on the normal axis and the second three are the same but for the other triangle
             dotProductResults[0] = otherTriangle.getNormalX()[i] * (x[0] + Rigidbody.get(parentRigidbody).getPosX()) + otherTriangle.getNormalY()[i] * (y[0] + Rigidbody.get(parentRigidbody).getPosY());
@@ -240,7 +247,11 @@ class Triangle { //this class is closely tied to the Rigidbody class
                 intersecting = false;
                 break;
             }
-            else if (mod(otherTriangle.indices[(i + 1) % 3] - otherTriangle.indices[i], Rigidbody.get(otherTriangle.getParentID()).getNumPoints()) == 1){
+            else if (mod(otherTriangle.indices[(i + 1) % 3] - otherTriangle.indices[i], Rigidbody.get(otherTriangle.getParentID()).getNumPoints()) == 1 && otherTriangle.enabled[i]) {
+                if (otherTriangle.partOfFace && !(Rigidbody.get(parentRigidbody).getVX() * otherTriangle.getNormalX()[i] + Rigidbody.get(parentRigidbody).getVY() * otherTriangle.getNormalY()[i] < 0.0)) {
+                    intersecting = false;
+                    break;
+                }
                 double temp = Math.abs(dotMax - otherDotMin);
                 if (Math.abs(otherDotMax - dotMin) < temp) temp = Math.abs(otherDotMax - dotMin);
                 if (Double.isNaN(overlap) || temp < overlap) {
@@ -274,7 +285,7 @@ class Triangle { //this class is closely tied to the Rigidbody class
         double[] pointOfContact = new double[]{Double.NaN, Double.NaN};
         double[] dotProductResults = new double[6];
         double overlap = Double.NaN;
-        for (int i = 0; i < 3; i = i + 1) {
+        if (!partOfFace) for (int i = 0; i < 3; i = i + 1) {
             if (!(mod(indices[(i + 1) % 3] - indices[i], Rigidbody.get(parentRigidbody).getNumPoints()) == 1)) {
                 continue;
             }
@@ -285,7 +296,7 @@ class Triangle { //this class is closely tied to the Rigidbody class
             //to make up for what I assume to be a precision error, we deduct about 1.5 from the actual distance
             //without doing so, the dot product approach needed before would proc before the distance approach needed here, even in
             //situations where the triangle's points are physically in contact, returning the wrong answer
-            if (actualDistance <= other.getSolidRadius()) {
+            if (actualDistance <= other.getSolidRadius() + 1.0) {
                 intersecting = true;
                 double temp = Math.abs(other.getSolidRadius() - actualDistance);
                 double nX = (trianglePointX - other.getX()) / actualDistance;
@@ -319,11 +330,15 @@ class Triangle { //this class is closely tied to the Rigidbody class
                 }
             }
         }
-
-        if (!intersecting) {
+        if (!intersecting && (enabled[0] || enabled[1] || enabled[2])) {
             for (int i = 0; i < 3; i = i + 1) {
-                if (!(mod(indices[(i + 1) % 3] - indices[i], Rigidbody.get(parentRigidbody).getNumPoints()) == 1)) {
+                double velocityCheck = other.getVX() * normalX[i] + other.getVY() * normalY[i];
+                if (!(mod(indices[(i + 1) % 3] - indices[i], Rigidbody.get(parentRigidbody).getNumPoints()) == 1 && enabled[i])) {
                     continue;
+                }
+                if (partOfFace && velocityCheck >= 0.0) {
+                    intersecting = false;
+                    break;
                 }
                 //in the ortho-normal projection
                 dotProductResults[0] = -normalY[i] * (x[i] + Rigidbody.get(parentRigidbody).getPosX()) + normalX[i] * (y[i] + Rigidbody.get(parentRigidbody).getPosY());
@@ -347,6 +362,7 @@ class Triangle { //this class is closely tied to the Rigidbody class
                     dotMin = dotProductResults[4];
                 }
                 if (dotProductResults[2] < orthoDotMax && dotProductResults[2] > orthoDotMin) {
+                    if (partOfFace && !(dotProductResults[5] - other.getSolidRadius() > dotMin - 1.0)) break;
                     if (dotProductResults[5] - other.getSolidRadius() < dotMax && dotProductResults[5] + other.getSolidRadius() > dotMax) {
                         intersecting = true;
                         double temp = Math.abs(dotMax - dotProductResults[5] + other.getSolidRadius());
@@ -375,8 +391,6 @@ class Triangle { //this class is closely tied to the Rigidbody class
                                 MTV[1] = normalY[i] * temp;
                                 pointOfContact[0] = other.getX() - other.getSolidRadius() * normalX[i] + MTV[0];
                                 pointOfContact[1] = other.getY() - other.getSolidRadius() * normalY[i] + MTV[1];
-                                Display.pointOfContactDraw[0] = pointOfContact[0];
-                                Display.pointOfContactDraw[1] = pointOfContact[1];
                             }
                         }
                     }
