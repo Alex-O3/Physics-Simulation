@@ -196,12 +196,12 @@ class Softbody {
             members.get(i).SPRING_MIN_DIST_MULTIPLIER = min_dist_multiplier;
 
             //connect to other nearby points
-            if (Point.get(i).isAttached()) for (int j = 0; j < members.size(); j = j + 1) {
+            if (members.get(i).isAttached()) for (int j = 0; j < members.size(); j = j + 1) {
                 if (i != j && members.get(j).isAttached()) {
                     double distance = (members.get(i).getX() - members.get(j).getX()) * (members.get(i).getX() - members.get(j).getX());
                     distance = distance + (members.get(i).getY() - members.get(j).getY()) * (members.get(i).getY() - members.get(j).getY());
                     distance = Math.sqrt(distance);
-                    if (distance < checkRadius) {
+                    if (distance <= checkRadius) {
                         members.get(i).attach(members.get(j));
                     }
                 }
@@ -214,6 +214,7 @@ class Softbody {
         }
 
         calculateProperties();
+        Simulation.get(simID).getSAPCell(0, 0).addBox(ID * -2 - 1);
     }
     public static void step(int simID) {
         for (int i = 0; i < num; i = i + 1) {
@@ -461,6 +462,11 @@ class Softbody {
         int closestEdgeIndex = -1;
         boolean invertNormals = findSignedArea() < 0.0;
         if (radius <= 0.0) intersecting = pointInside(point);
+        if (intersecting) {
+            double a = 1;
+        }
+        boolean insideCheck = false;
+        if (radius > 0.0) insideCheck = pointInside(point);
         if (radius > 0.0 || intersecting) for (int i = 0; i < size; i = i + 1) {
             double x1 = Point.get(boundaryMembers.get(i)).getX();
             double x2 = Point.get(boundaryMembers.get((i + 1) % size)).getX();
@@ -476,14 +482,9 @@ class Softbody {
                 nY = -nY;
             }
 
-            if (radius > 0.0) {
-                boolean rimIntersecting = pointInside(new double[]{point[0] - nX * radius, point[1] - nY * radius});
-                if (!intersecting) intersecting = rimIntersecting;
-                if (!rimIntersecting) continue;
-            }
-
-            double distance = (point[0] - x1) * nX + (point[1] - y1) * nY - radius;
-            if ((Double.isNaN(closestEdgeDistance) || distance > closestEdgeDistance) && distance < 0.0) {
+            double distance = (point[0] - x1) * nX + (point[1] - y1) * nY;
+            distance -= radius;
+            if ((Double.isNaN(closestEdgeDistance) || distance > closestEdgeDistance) && distance < 0.0 && (radius <= 0.0 || distance >= -radius || insideCheck)) {
                 double orthoDotPoint = point[0] * -nY + point[1] * nX;
                 double orthoDotMin = x1 * -nY + y1 * nX;
                 double orthoDotMax = x2 * -nY + y2 * nX;
@@ -497,6 +498,7 @@ class Softbody {
                     closestEdgeNX = nX;
                     closestEdgeNY = nY;
                     closestEdgeIndex = i;
+                    intersecting = true;
                 }
             }
         }

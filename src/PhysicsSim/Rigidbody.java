@@ -30,26 +30,27 @@ class Rigidbody {
     public final int ID;
     private boolean invertNormals = false;
     private boolean isMovable = true;
-    protected boolean isHitbox = false;
-    protected boolean draw = true;
+    boolean isHitbox = false;
+    boolean draw = true;
     //these ArrayLists are not constant, but the pointer stored to them is, hence the "final"
-    protected final ArrayList<Controller> controllers = new ArrayList<>();
+    final ArrayList<Controller> controllers = new ArrayList<>();
     private final ArrayList<Double> xPoints = new ArrayList<>();
     private final ArrayList<Double> yPoints = new ArrayList<>();
     private final ArrayList<Triangle> triangles = new ArrayList<>();
     private final ArrayList<Double[]> contactPoints = new ArrayList<>();
     private final ArrayList<Double[]> MTVs = new ArrayList<>();
-    protected final ArrayList<Integer> collidingIDs = new ArrayList<>();
-    //for collidingIDs, 0 - infinity inclusive is reserved for other rigidbodies and -2 - -infinity is reserved for points. -1 is reserved for the walls
-    protected double mass;
-    protected double inertia;
+    final ArrayList<Integer> collidingIDs = new ArrayList<>();
+    //for collidingIDs, 0 - infinity inclusive is reserved for other rigidbodies and -2 - -infinity even numbers is reserved for points. -1 is reserved for the walls
+    //-2 - infinity odd numbers reserved for softbody point edges collisions
+    double mass;
+    double inertia;
     private final Color color;
     private final double area;
     private double largestDistance = 0.0;
-    private double bottomBoundBox;
-    private double topBoundBox;
-    private double leftBoundBox;
-    private double rightBoundBox;
+    double bottomBoundBox;
+    double topBoundBox;
+    double leftBoundBox;
+    double rightBoundBox;
     private double lastMouseX = 250.0;
     private double lastMouseY = 250.0;
     private double currentMouseX = 250.0;
@@ -66,14 +67,14 @@ class Rigidbody {
     public double worldLeftBound = 0.0;
     public double worldRightBound = 485.0;
 
-    protected double posX;
-    protected double posY;
-    protected double vX;
-    protected double vY;
-    protected double aX;
-    protected double aY;
-    protected double angularV;
-    protected double angularA;
+    double posX;
+    double posY;
+    double vX;
+    double vY;
+    double aX;
+    double aY;
+    double angularV;
+    double angularA;
     private final double[] initialExternalForces = new double[2];
     private final double initialExternalTorque;
 
@@ -90,6 +91,7 @@ class Rigidbody {
     private double otherUpdatePosY;
     private double otherUpdateVX;
     private double otherUpdateVY;
+    private int vUpdateCount = 0;
     private double otherUpdateAX;
     private double otherUpdateAY;
 
@@ -98,7 +100,6 @@ class Rigidbody {
 
     public Rigidbody(double[] inputX, double[] inputY, double[] motion, double mass, Color color, int simID) {
         this.simID = simID;
-        Triangle.setMTVEpsilon(MTV_EPSILON);
         ID = num;
         num = num + 1;
         this.mass = mass;
@@ -193,7 +194,9 @@ class Rigidbody {
                              // and to not contain any other polygon points inside it, so as to not be self-intersecting
                     //Save as a triangle and mark point as covered (3)
                     pointExclusions[mod(i,length)] = 3; //it means this point is the parent point of a triangle that is now removed from the polygon in the triangulation process
-                    triangles.set(mod(i,length), new Triangle(mod(backwardIndex, length), mod(i,length), mod(forwardIndex,length),ID, center));
+                    Triangle triangle = new Triangle(mod(backwardIndex, length), mod(i,length), mod(forwardIndex,length),ID, center);
+                    triangle.setMTVEpsilon(MTV_EPSILON);
+                    triangles.set(mod(i,length), triangle);
                     numTriangles = numTriangles + 1;
                 }
             }
@@ -262,6 +265,8 @@ class Rigidbody {
             }
         }
 
+        Simulation.get(simID).getSAPCell(0, 0).addBox(ID);
+
     }
 
     //general motion. Copied and altered to fit Point in that file
@@ -278,7 +283,7 @@ class Rigidbody {
                 else if (rigidbodies.get(i).vX != 0.0 || rigidbodies.get(i).vY != 0.0 || rigidbodies.get(i).angularV != 0.0) {
                     rigidbodies.get(i).calcMotionFreeMove(dt, true);
                 }
-                if (rigidbodies.get(i).isHitbox) rigidbodies.get(i).findCollisions();
+                //if (rigidbodies.get(i).isHitbox) rigidbodies.get(i).findCollisions();
             }
         }
     }
@@ -290,63 +295,9 @@ class Rigidbody {
             }
         }
     }
-    private boolean findCollisions() {
-        //clear the list of point information
-        contactPoints.clear();
-        MTVs.clear();
-        collidingIDs.clear();
-
-        //determine point information
-        boolean intersecting = false;
-        for (int i = 0; i < rigidbodies.size(); i = i + 1) {
-            if (i != ID && Rigidbody.get(i).simID == simID && (isHitbox || !Rigidbody.get(i).isHitbox)) {
-                if (!intersecting) intersecting = checkForCollisionsBroad(Rigidbody.get(i));
-                else checkForCollisionsBroad(Rigidbody.get(i));
-            }
-        }
-        if (!intersecting && bounds) intersecting = checkForCollisionsWall();
-        else if (bounds) checkForCollisionsWall();
-        for (int i = 0; i < Point.num; i = i + 1) {
-            if (!(Point.get(i).simID == simID && (isHitbox || !Point.get(i).isHitbox))) continue;
-            if (!intersecting) intersecting = checkForCollisionsBroad(Point.get(i));
-            else checkForCollisionsBroad(Point.get(i));
-        }
-        for (int i = 0; i < Softbody.num; i = i + 1) {
-            if (!(Softbody.get(i).simID == simID)) continue;
-            if (!intersecting) intersecting = checkForCollisionsBroad(Softbody.get(i));
-            else checkForCollisionsBroad(Softbody.get(i));
-        }
-        //prune the list for points too close to one another (same point, but different triangle with floating point precision differences)
-        if (!contactPoints.isEmpty()) {
-            for (int i = 0; i < contactPoints.size(); i = i + 1) {
-                for (int j = i + 1; j < contactPoints.size(); j = j + 1) {
-                    if (i != j && !Double.isNaN(contactPoints.get(i)[0]) && !Double.isNaN(contactPoints.get(j)[0])) {
-                        double temp1 = contactPoints.get(i)[0] - contactPoints.get(j)[0];
-                        double temp2 = contactPoints.get(i)[1] - contactPoints.get(j)[1];
-                        double distance = temp1 * temp1 + temp2 * temp2;
-                        distance = Math.sqrt(Math.max(distance, 0.0));
-                        if (distance <= CONTACT_POINTS_MERGE_DISTANCE) {
-                            contactPoints.set(j, new Double[]{Double.NaN, Double.NaN});
-                        }
-                    }
-                }
-            }
-        }
-        int length = contactPoints.size();
-        for (int i = 0; i < length; i = i + 1) {
-            if (i >= contactPoints.size()) break;
-            if (Double.isNaN(contactPoints.get(i)[0])) {
-                contactPoints.remove(i);
-                MTVs.remove(i);
-                collidingIDs.remove(i);
-                i = i - 1;
-            }
-        }
-        return(intersecting);
-    }
     private void calcMotion(double dt) {
         //check for collisions and do one of two options for updating motion based on whether the rigidbody is colliding with another
-        boolean intersecting = findCollisions();
+        boolean intersecting = !collidingIDs.isEmpty();
 
         newposX = posX;
         newposY = posY;
@@ -522,19 +473,49 @@ class Rigidbody {
 
 
     }
-    private boolean checkForCollisionsBroad(Rigidbody otherObject) {
-        boolean results = false;
-        double actualDistance = (posX - otherObject.getPosX()) * (posX - otherObject.getPosX()) + (posY - otherObject.getPosY()) * (posY - otherObject.getPosY());
-        actualDistance = Math.sqrt(actualDistance);
-        if (Double.isNaN(actualDistance)) actualDistance = 0.0;
-        if (actualDistance <= largestDistance + otherObject.getLargestDistance()) {
-            if (otherObject.isAABB(leftBoundBox + posX,rightBoundBox + posX,topBoundBox + posY,bottomBoundBox + posY)) {
-                results = checkForCollisionsNarrow(otherObject);
+    static void clearCollisionInformation(int simID) {
+        for (Rigidbody rigidbody : rigidbodies) {
+            if (rigidbody.simID != simID) continue;
+            rigidbody.contactPoints.clear();
+            rigidbody.MTVs.clear();
+            rigidbody.collidingIDs.clear();
+        }
+    }
+    static void finalizeCollisionInformation(int simID) {
+        for (Rigidbody rigidbody : rigidbodies) {
+            if (rigidbody.simID != simID) continue;
+            if (rigidbody.bounds) rigidbody.checkForCollisionsWall();
+
+            //prune the list for points too close to one another (same point, but different triangle with floating point precision differences)
+            if (!rigidbody.contactPoints.isEmpty()) {
+                for (int i = 0; i < rigidbody.contactPoints.size(); i = i + 1) {
+                    for (int j = i + 1; j < rigidbody.contactPoints.size(); j = j + 1) {
+                        if (i != j && !Double.isNaN(rigidbody.contactPoints.get(i)[0]) && !Double.isNaN(rigidbody.contactPoints.get(j)[0])) {
+                            double temp1 = rigidbody.contactPoints.get(i)[0] - rigidbody.contactPoints.get(j)[0];
+                            double temp2 = rigidbody.contactPoints.get(i)[1] - rigidbody.contactPoints.get(j)[1];
+                            double distance = temp1 * temp1 + temp2 * temp2;
+                            distance = Math.sqrt(Math.max(distance, 0.0));
+                            if (distance <= rigidbody.CONTACT_POINTS_MERGE_DISTANCE) {
+                                rigidbody.contactPoints.set(j, new Double[]{Double.NaN, Double.NaN});
+                            }
+                        }
+                    }
+                }
+            }
+            int length = rigidbody.contactPoints.size();
+            for (int i = 0; i < length; i = i + 1) {
+                if (i >= rigidbody.contactPoints.size()) break;
+                if (Double.isNaN(rigidbody.contactPoints.get(i)[0])) {
+                    rigidbody.contactPoints.remove(i);
+                    rigidbody.MTVs.remove(i);
+                    rigidbody.collidingIDs.remove(i);
+                    i = i - 1;
+                }
             }
         }
-        return(results);
     }
-    private boolean checkForCollisionsNarrow(Rigidbody otherObject) {
+    boolean checkForCollisionsNarrow(Rigidbody otherObject) {
+        if (!(otherObject.simID == simID && (isHitbox || !otherObject.isHitbox))) return(false);
         boolean intersecting = false;
         for (int i = 0; i < xPoints.size(); i = i + 1) {
             for (int j = 0; j < otherObject.getNumPoints(); j = j + 1) {
@@ -551,20 +532,8 @@ class Rigidbody {
         }
         return(intersecting);
     }
-    private boolean checkForCollisionsBroad(Point otherPoint) {
-        boolean results = false;
-        double radius = otherPoint.getSolidRadius();
-        double actualDistance = (newposX - otherPoint.getX()) * (newposX - otherPoint.getX()) + (newposY - otherPoint.getY()) * (newposY - otherPoint.getY());
-        actualDistance = Math.sqrt(actualDistance);
-        if (Double.isNaN(actualDistance)) actualDistance = 0.0;
-        if (actualDistance <= largestDistance + otherPoint.getSolidRadius()) {
-            if (isAABB(otherPoint.getX() - radius, otherPoint.getX() + radius, otherPoint.getY() - radius, otherPoint.getY() + radius)) {
-                results = checkForCollisionsNarrow(otherPoint);
-            }
-        }
-        return(results);
-    }
-    private boolean checkForCollisionsNarrow(Point otherPoint) {
+    boolean checkForCollisionsNarrow(Point otherPoint) {
+        if (!(otherPoint.simID == simID && (isHitbox || !otherPoint.isHitbox))) return(false);
         boolean intersecting = false;
         for (int i = 0; i < xPoints.size(); i = i + 1) {
             if (triangles.get(i).doesExist()) {
@@ -579,21 +548,7 @@ class Rigidbody {
         }
         return(intersecting);
     }
-    private boolean checkForCollisionsBroad(Softbody softbody) {
-        if (!softbody.boundaryCollision) return(false);
-        boolean intersecting = false;
-        double dx = softbody.cM[0] - posX;
-        double dy = softbody.cM[1] - posY;
-        if (dx * dx + dy * dy <= softbody.largestSquaredDistance + getLargestDistance()) {
-            if (leftBoundBox + posX < softbody.maxX && rightBoundBox + posX > softbody.minX) {
-                if (topBoundBox + posY < softbody.maxY && bottomBoundBox + posY > softbody.minY) {
-                    intersecting = checkForCollisionsNarrow(softbody);
-                }
-            }
-        }
-        return(intersecting);
-    }
-    private boolean checkForCollisionsNarrow(Softbody softbody) {
+    boolean checkForCollisionsNarrow(Softbody softbody) {
         boolean intersecting = false;
         for (int i = 0; i < xPoints.size(); i = i + 1) {
             Triplet results = softbody.resolvePointInside(new double[]{xPoints.get(i) + posX, yPoints.get(i) + posY}, 0.0);
@@ -751,8 +706,10 @@ class Rigidbody {
     private void updateMotion(double dt) {
         newposX += otherUpdatePosX;
         newposY += otherUpdatePosY;
-        newvX += otherUpdateVX;
-        newvY += otherUpdateVY;
+        if (vUpdateCount == 0) vUpdateCount = 1;
+        newvX += otherUpdateVX / vUpdateCount;
+        newvY += otherUpdateVY / vUpdateCount;
+        vUpdateCount = 0;
         newaX += otherUpdateAX;
         newaY += otherUpdateAY;
         //clamp some values
@@ -1317,7 +1274,7 @@ class Rigidbody {
             else return((Rigidbody.get(index).COEFFICIENT_OF_FRICTION_STATIC + COEFFICIENT_OF_FRICTION_STATIC) * 0.5);
         }
         else if (index <= -2 && mod(index, 2) == 0) {
-            if (adoptOnlyOtherSurface) return(Point.get(-index - 2).COEFFICIENT_OF_FRICTION_STATIC);
+            if (adoptOnlyOtherSurface) return(Point.get((-index / 2) - 1).COEFFICIENT_OF_FRICTION_STATIC);
             else return((Point.get((-index / 2) - 1).COEFFICIENT_OF_FRICTION_STATIC + COEFFICIENT_OF_FRICTION_STATIC) * 0.5);
         }
         else if (index <= -2 && mod(index, 2) == 1) {

@@ -5,17 +5,17 @@ import java.util.ArrayList;
 class Point {
     public int simID;
 
-    protected double mass;
+    double mass;
     private final double area;
-    protected double inertia;
+    double inertia;
     private Color color;
     private final double radius;
     private final double repulseRadius;
-    protected final ArrayList<Controller> controllers = new ArrayList<>();
+    final ArrayList<Controller> controllers = new ArrayList<>();
     private static final ArrayList<Point> points = new ArrayList<>();
     private final ArrayList<Double[]> contactPoints = new ArrayList<>();
     private final ArrayList<Double[]> MTVs = new ArrayList<>();
-    protected final ArrayList<Integer> collidingIDs = new ArrayList<>();
+    final ArrayList<Integer> collidingIDs = new ArrayList<>();
     //same collidingIDs convention as Rigidbody
     private final ArrayList<Integer> attachedIndices = new ArrayList<>();
     private final ArrayList<Double> idealSpringLengths = new ArrayList<>();
@@ -56,8 +56,8 @@ class Point {
     private boolean adoptOnlyOtherSurface = false;
 
     private boolean isMovable = true;
-    protected boolean isHitbox = false;
-    protected boolean draw = true;
+    boolean isHitbox = false;
+    boolean draw = true;
     private final boolean isSolidBall;
     private boolean attached = false;
     public boolean futureBoundary = false;
@@ -68,12 +68,12 @@ class Point {
     public boolean buoyancy = false;
     public boolean bounds = true;
 
-    protected double posX;
-    protected double posY;
-    protected double vX;
-    protected double vY;
-    protected double aX;
-    protected double aY;
+    double posX;
+    double posY;
+    double vX;
+    double vY;
+    double aX;
+    double aY;
 
     private double newposX;
     private double newposY;
@@ -86,8 +86,8 @@ class Point {
     private double otherUpdatePosX;
     private double otherUpdatePosY;
     private double otherUpdateVX;
-    private int vUpdateCount = 0;
     private double otherUpdateVY;
+    private int vUpdateCount = 0;
     private double otherUpdateAX;
     private double otherUpdateAY;
 
@@ -112,6 +112,7 @@ class Point {
         this.isSolidBall = isSolidBall;
         area = Math.PI * getSolidRadius() * getSolidRadius();
         points.add(this);
+        Simulation.get(simID).getSAPCell(0, 0).addBox(ID * -2 - 2);
     }
 
     //general motion copied from Rigidbody and adjusted to account for 0 angular movement and other factors specific to Point
@@ -124,7 +125,7 @@ class Point {
                 else if (points.get(i).vX != 0.0 || points.get(i).vY != 0.0) {
                     points.get(i).calcMotionFreeMove(dt, true);
                 }
-                if (points.get(i).isHitbox) points.get(i).findCollisions();
+                //if (points.get(i).isHitbox) points.get(i).findCollisions();
             }
         }
     }
@@ -136,63 +137,9 @@ class Point {
             }
         }
     }
-    private boolean findCollisions() {
-        //clear the list of point information
-        contactPoints.clear();
-        MTVs.clear();
-        collidingIDs.clear();
-
-        //determine point information
-        boolean intersecting = false;
-        for (int i = 0; i < Rigidbody.num; i = i + 1) {
-            if (!(Rigidbody.get(i).simID == simID && (isHitbox || !Rigidbody.get(i).isHitbox))) continue;
-            if (!intersecting) intersecting = checkForCollisionsBroad(Rigidbody.get(i));
-            else checkForCollisionsBroad(Rigidbody.get(i));
-        }
-        if (!intersecting && bounds) intersecting = checkForCollisionsWall();
-        else if (bounds) checkForCollisionsWall();
-        for (int i = 0; i < Point.num; i = i + 1) {
-            if (i != ID && Point.get(i).isSolidBall && Point.get(i).simID == simID && (isHitbox || !Point.get(i).isHitbox)) {
-                if (!intersecting) intersecting = checkForCollisions(Point.get(i));
-                else checkForCollisions(Point.get(i));
-            }
-        }
-        for (int i = 0; i < Softbody.num; i = i + 1) {
-            if (Softbody.get(i).simID != simID) continue;
-            if (!intersecting) intersecting = checkForCollisionsBroad(Softbody.get(i));
-            else checkForCollisionsBroad(Softbody.get(i));
-        }
-        //prune the list for points too close to one another (same point, but different triangle with floating point precision differences)
-        if (!contactPoints.isEmpty()) {
-            for (int i = 0; i < contactPoints.size(); i = i + 1) {
-                for (int j = i + 1; j < contactPoints.size(); j = j + 1) {
-                    if (i != j && !Double.isNaN(contactPoints.get(i)[0]) && !Double.isNaN(contactPoints.get(j)[0])) {
-                        double temp1 = contactPoints.get(i)[0] - contactPoints.get(j)[0];
-                        double temp2 = contactPoints.get(i)[1] - contactPoints.get(j)[1];
-                        double distance = temp1 * temp1 + temp2 * temp2;
-                        distance = Math.sqrt(Math.max(distance, 0.0));
-                        if (distance <= CONTACT_POINTS_MERGE_DISTANCE) {
-                            contactPoints.set(j, new Double[]{Double.NaN, Double.NaN});
-                        }
-                    }
-                }
-            }
-        }
-        int length = contactPoints.size();
-        for (int i = 0; i < length; i = i + 1) {
-            if (i >= contactPoints.size()) break;
-            if (Double.isNaN(contactPoints.get(i)[0])) {
-                contactPoints.remove(i);
-                MTVs.remove(i);
-                collidingIDs.remove(i);
-                i = i - 1;
-            }
-        }
-        return(intersecting);
-    }
     private void calcMotion(double dt) {
         //check for collisions and do one of two options for updating motion based on whether the rigidbody is colliding with another
-        boolean intersecting = findCollisions();
+        boolean intersecting = !collidingIDs.isEmpty();
 
         newposX = posX;
         newposY = posY;
@@ -433,20 +380,48 @@ class Point {
             newvY = newvY + aY * dt;
         }
     }
-    private boolean checkForCollisionsBroad(Rigidbody otherObject) {
-        boolean results = false;
-        double radius = getSolidRadius();
-        double actualDistance = (otherObject.getPosX() - newposX) * (otherObject.getPosX() - newposX) + (otherObject.getPosY() - newposY) * (otherObject.getPosY() - newposY);
-        actualDistance = Math.sqrt(actualDistance);
-        if (Double.isNaN(actualDistance)) actualDistance = 0.0;
-        if (actualDistance <= otherObject.getLargestDistance() + getSolidRadius()) {
-            if (otherObject.isAABB(newposX - radius, newposX + radius, newposY - radius, newposY + radius)) {
-                results = checkForCollisionsNarrow(otherObject);
+    static void clearCollisionInformation(int simID) {
+        for (Point point : points) {
+            if (point.simID != simID) continue;
+            point.contactPoints.clear();
+            point.MTVs.clear();
+            point.collidingIDs.clear();
+        }
+    }
+    static void finalizeCollisionInformation(int simID) {
+        for (Point point : points) {
+            if (point.simID != simID) continue;
+            if (point.bounds) point.checkForCollisionsWall();
+
+            //prune the list for points too close to one another (same point, but different triangle with floating point precision differences)
+            if (!point.contactPoints.isEmpty()) {
+                for (int i = 0; i < point.contactPoints.size(); i = i + 1) {
+                    for (int j = i + 1; j < point.contactPoints.size(); j = j + 1) {
+                        if (i != j && !Double.isNaN(point.contactPoints.get(i)[0]) && !Double.isNaN(point.contactPoints.get(j)[0])) {
+                            double temp1 = point.contactPoints.get(i)[0] - point.contactPoints.get(j)[0];
+                            double temp2 = point.contactPoints.get(i)[1] - point.contactPoints.get(j)[1];
+                            double distance = temp1 * temp1 + temp2 * temp2;
+                            distance = Math.sqrt(Math.max(distance, 0.0));
+                            if (distance <= point.CONTACT_POINTS_MERGE_DISTANCE) {
+                                point.contactPoints.set(j, new Double[]{Double.NaN, Double.NaN});
+                            }
+                        }
+                    }
+                }
+            }
+            int length = point.contactPoints.size();
+            for (int i = 0; i < length; i = i + 1) {
+                if (i >= point.contactPoints.size()) break;
+                if (Double.isNaN(point.contactPoints.get(i)[0])) {
+                    point.contactPoints.remove(i);
+                    point.MTVs.remove(i);
+                    point.collidingIDs.remove(i);
+                    i = i - 1;
+                }
             }
         }
-        return(results);
     }
-    private boolean checkForCollisionsNarrow(Rigidbody otherObject) {
+    boolean checkForCollisionsNarrow(Rigidbody otherObject) {
         boolean intersecting = false;
         for (int i = 0; i < otherObject.getNumPoints(); i = i + 1) {
             if (otherObject.getTriangles().get(i).doesExist()) {
@@ -474,7 +449,7 @@ class Point {
         return(intersecting);
 
     }
-    private boolean checkForCollisions(Point otherPoint) {
+    boolean checkForCollisions(Point otherPoint) {
         boolean intersecting = false;
         double distance = (posX - otherPoint.getX()) * (posX - otherPoint.getX()) + (posY - otherPoint.getY()) * (posY - otherPoint.getY());
         distance = Math.sqrt(distance);
@@ -502,22 +477,7 @@ class Point {
         }
         return(intersecting);
     }
-    private boolean checkForCollisionsBroad(Softbody softbody) {
-        if (!softbody.boundaryCollision) return(false);
-        if (parentSoftbody != -1 && softbody.ID == parentSoftbody) return(false);
-        boolean intersecting = false;
-        double dx = softbody.cM[0] - posX;
-        double dy = softbody.cM[1] - posY;
-        if (dx * dx + dy * dy <= softbody.largestSquaredDistance + getSolidRadius()) {
-            if (posX - getSolidRadius() < softbody.maxX && posX + getSolidRadius() > softbody.minX) {
-                if (posY - getSolidRadius() < softbody.maxY && posY + getSolidRadius() > softbody.minY) {
-                    intersecting = checkForCollisionsNarrow(softbody);
-                }
-            }
-        }
-        return(intersecting);
-    }
-    private boolean checkForCollisionsNarrow(Softbody softbody) {
+    boolean checkForCollisionsNarrow(Softbody softbody) {
         boolean intersecting = false;
         Triplet results = softbody.resolvePointInside(new double[]{posX, posY}, getSolidRadius());
         if (results.getFirstBoolean()) {
@@ -636,13 +596,13 @@ class Point {
 
     }
     private void calculateRepulsion() {
-        if (parentSoftbody != -1) for (int i = 0; i < num; i = i + 1) {
-            if (i != ID && Point.get(i).parentSoftbody != parentSoftbody && Point.get(i).parentSoftbody != -1 && Point.get(i).simID == simID) {
-                double dx = posX - Point.get(i).getX();
-                double dy = posY - Point.get(i).getY();
+        if (parentSoftbody != -1) for (int i = 0; i < Softbody.num; i = i + 1) {
+            if (Softbody.get(i).simID == simID && i != parentSoftbody) for (int j = 0; j < Softbody.get(i).size(); j = j + 1) {
+                double dx = posX - Softbody.get(i).getMember(j).getX();
+                double dy = posY - Softbody.get(i).getMember(j).getY();
                 double distance = Math.sqrt(dx * dx + dy * dy);
-                if (distance > 0.0 && distance < repulseRadius + Point.get(i).getRepulseRadius()) {
-                    double aMagnitude = Math.max(0.0, REPULSION_STRENGTH * (((Point.get(i).getRepulseRadius() + repulseRadius) / distance) - 1.0));
+                if (distance > 0.0 && distance < repulseRadius + Softbody.get(i).getMember(j).getRepulseRadius()) {
+                    double aMagnitude = Math.max(0.0, REPULSION_STRENGTH * (((Softbody.get(i).getMember(j).getRepulseRadius() + repulseRadius) / distance) - 1.0));
                     newaX += aMagnitude * (dx / distance);
                     newaY += aMagnitude * (dy / distance);
                 }

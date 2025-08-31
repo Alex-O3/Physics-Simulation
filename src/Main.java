@@ -1,4 +1,4 @@
-import PhysicsSim.Simulation;
+import PhysicsSim.*;
 
 import java.awt.*;
 import java.util.Arrays;
@@ -9,9 +9,10 @@ public class Main {
     public static double dt = (double) (timeStep) / 1000.0;
     public static void main(String[] args) throws Exception {
         Simulation sim = new Simulation(0, 0 ,500, 500,1.0, true);
-        sim.setupDemo(9);
+        sim.setupDemo(8);
 
         long time = 0;
+        System.out.println(sim.size());
         while (gameRunning) {
             try {
                 if (time < timeStep) Thread.sleep(timeStep);

@@ -126,7 +126,7 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
             //draw center of mass unless that drawing would be larger than the shape
             if (Rigidbody.get(i).getLargestDistance() / resolutionScaling > 15.0 && Rigidbody.get(i).isMovable()) {
                 g.setColor(Color.red);
-                g.fillOval(convertX(Rigidbody.get(i).getPosX() - 5.0), convertY(Rigidbody.get(i).getPosY() - 5), (int)(10.0 / resolutionScaling), (int)(10.0 / resolutionScaling));
+                g.fillOval(convertX(Rigidbody.get(i).getPosX()) - 5, convertY(Rigidbody.get(i).getPosY()) - 5, 10, 10);
             }
             //draw debug velocity and acceleration vectors
             if (debugVector == 1) {
@@ -163,7 +163,7 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
             //draw the center of mass unless the Point is too small (in which case the center of mass circle would be larger than the Point)
             if (radius / resolutionScaling > 15.0 && Point.get(i).isMovable()) {
                 g.setColor(Color.red);
-                g.fillOval(convertX(Point.get(i).getX() - 5), convertY(Point.get(i).getY() - 5), (int)(10.0 / resolutionScaling), (int)(10.0 / resolutionScaling));
+                g.fillOval(convertX(Point.get(i).getX()) - 5, convertY(Point.get(i).getY()) - 5, 10, 10);
             }
             //draw debug velocity and acceleration vectors
             if (debugVector == 1) {

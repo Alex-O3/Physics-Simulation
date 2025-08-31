@@ -1,6 +1,6 @@
 package PhysicsSim;
 class Triangle { //this class is closely tied to the Rigidbody class
-    private static double MTV_EPSILON = 500.0;
+    private double MTV_EPSILON = 500.0;
 
     private double[] x = new double[3];
     private double[] y = new double[3];
@@ -443,7 +443,7 @@ class Triangle { //this class is closely tied to the Rigidbody class
     public boolean doesExist() {
         return(exists);
     }
-    public static void setMTVEpsilon(double x) {
+    public void setMTVEpsilon(double x) {
         MTV_EPSILON = x;
     }
 }

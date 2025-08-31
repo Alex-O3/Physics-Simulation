@@ -15,10 +15,11 @@ public class Simulation {
     public static boolean showCreationWarnings = false;
     public static boolean showCreationInfo = false;
     private static final ArrayList<Simulation> simulations = new ArrayList<>();
-    protected final ArrayList<PhysicsObject> physicsObjects = new ArrayList<>();
-    protected final ArrayList<Hitbox> hitboxes = new ArrayList<>();
-    protected final static Material defaultMaterial = new Material("Default", 10.0, 0.75, 0.35, 0.5);
-    protected final static ArrayList<Material> materials = new ArrayList<>();
+    final ArrayList<SAPCell> sapCells = new ArrayList<>();
+    final ArrayList<PhysicsObject> physicsObjects = new ArrayList<>();
+    final ArrayList<Hitbox> hitboxes = new ArrayList<>();
+    final static Material defaultMaterial = new Material("Default", 10.0, 0.75, 0.35, 0.5);
+    final static ArrayList<Material> materials = new ArrayList<>();
 
     //physical constants told to Softbody, Point, and Rigidbody
     public double COEFFICIENT_OF_RESTITUTION = 0.75;
@@ -50,8 +51,12 @@ public class Simulation {
     public boolean mouse = false;
     public boolean printKeys = false;
     public boolean drawing = true;
+    public int fpsCountingBuffer = 60;
+    private double fps = 60.0;
+    private double[] frameTimes = new double[60];
+    private int frameCountLoop = 0;
 
-    protected final Display display;
+    final Display display;
     public final double keysCacheRemovalBufferTime = 0.0;
     public Simulation(int x, int y, int screenWidth, int screenHeight, double resolutionScaling, boolean mouse) {
         ID = num;
@@ -65,6 +70,7 @@ public class Simulation {
         display.resolutionScaling = resolutionScaling;
         synchronizeSettings();
         simulations.add(this);
+        new SAPCell(ID, 0, 0);
     }
 
     public void synchronizeSettings() {
@@ -121,6 +127,16 @@ public class Simulation {
         dt = dt / (double) stepsPerFrame;
         for (int frameCount = 0; frameCount < stepsPerFrame; frameCount = frameCount + 1) {
             if (mouse) display.mouseDrag(dt, stepsPerFrame);
+            Rigidbody.clearCollisionInformation(ID);
+            Point.clearCollisionInformation(ID);
+            for (SAPCell sap : sapCells) {
+                sap.updateSort();
+                for (int i = 0; i < sap.pairs.size() / 2; i = i + 1) {
+                    sap.aabbs.get(sap.pairs.get(2 * i)).findCollisions(sap.aabbs.get(sap.pairs.get(2 * i + 1)));
+                }
+            }
+            Rigidbody.finalizeCollisionInformation(ID);
+            Point.finalizeCollisionInformation(ID);
             Rigidbody.step(dt, ID);
             Point.step(dt, ID);
             Softbody.step(ID);
@@ -150,7 +166,14 @@ public class Simulation {
         }
 
         long time = System.currentTimeMillis() - beforeTime;
-        double fps = 1000.0 / time;
+        frameCountLoop = frameCountLoop % 60;
+        frameTimes[frameCountLoop] = (double) time / 1000.0;
+        double sum = 0.0;
+        for (int i = 0; i < frameTimes.length; i = i + 1) {
+            sum += frameTimes[i];
+        }
+        fps = 60.0 / sum;
+        frameCountLoop += 1;
         display.fps.setText("FPS: " + String.format("%.2f", fps));
         return(time);
     }
@@ -162,7 +185,7 @@ public class Simulation {
             }
             case(1): {
                 if (demoID != 3) airResistance = false;
-                addRigidbody(new double[]{-14.1, 7.3, 18.8, -10.9, 0.0, -26.6}, new double[]{-16.2, -20.7, 7.0, 23.7, -7.8, -0.8}, new double[]{100.0, 200.0, 0.0, 00.0, 0.0, 90.0, 0.0, 0.0}, 50.0, Color.blue);
+                addRigidbody(new double[]{-14.1, 7.3, 18.8, -10.9, 0.0, -26.6}, new double[]{-16.2, -20.7, 7.0, 23.7, -7.8, -0.8}, new double[]{200.0, 200.0, 0.0, 00.0, 0.0, 90.0, 0.0, 0.0}, 50.0, Color.blue);
                 addRigidbody(new double[]{-21.3, 48.5, 53.0, 5.0, -32.0}, new double[]{32.4, 20.7, -21.0, -21.0, -1.6}, new double[]{450.0, 100.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 40.0, Color.yellow);
                 //addRigidbody(new double[]{-500.0, 1000.0, 1000.0, -500.0}, new double[]{500.0, 500.0, 600.0, 600.0}, new double[]{250.0, 550.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 10000000.0, Color.green);
                 //addObstacle(new double[]{-500.0, 1000.0, 1000.0, -500.0}, new double[]{500.0, 500.0, 600.0, 600.0}, 1.0, Color.green);
@@ -260,6 +283,19 @@ public class Simulation {
                 System.out.println("Demo 9: shows the implementation of a player controller. 'Ground' materials to jump off must have 'Ground' in their name and player lock comes with 'Player' materials.");
                 break;
             }
+            case(10): {
+                COEFFICIENT_OF_RESTITUTION = 1.0;
+                airResistance = false;
+                for (int i = 0; i < 2000; i = i + 1) {
+                    addBall(new double[]{Math.random() * 500.0, Math.random() * 500.0, Math.random() * 50.0 * Math.signum(Math.random() - 0.5), Math.random() * 50.0 * Math.signum(Math.random() - 0.5), 0.0, 90.0}, 2.5, 10.0, Color.blue);
+                }
+                //addShapedSoftbody(true, new double[]{100.0, 400.0, 425.0, 75.0}, new double[]{100.0, 150.0, 400.0, 425.0}, new double[]{0.0, -50.0, 0.0, 90.0}, 1000.0, Color.blue, 100.0, 25.0, 1.0, 100.0);
+                //addShapedSoftbody(false, new double[]{200.0, 300.0, 300.0, 200.0}, new double[]{200.0, 200.0, 300.0, 300.0}, new double[]{0.0, 0.0, 0.0, 90.0}, 1000.0, Color.black, 100.0, 10.0, 3.0, 100.0);
+                addBall(new double[]{250.0, 50.0, 0.0, 0.0, 0.0, 90.0}, 25.0, 1000.0, Color.yellow);
+                synchronizeSettings();
+                System.out.println("Demo 10: shows optimization using Sweep and Prune algorithm.");
+                break;
+            }
             default: {
                 System.out.println("No demo exists for that demo ID.");
                 break;
@@ -272,6 +308,16 @@ public class Simulation {
             System.out.println("Demo setup failed. Physics object(s) already exist.");
             return(false);
         }
+    }
+
+    public SAPCell getSAPCell(int x, int y) {
+        //placeholder. SAPCells, if later fully implemented, will be implemented as a spatial hash table
+        for (SAPCell sap : sapCells) {
+            if (sap.x == x && sap.y == y) {
+                return(sap);
+            }
+        }
+        return(null);
     }
 
     public void addRigidbody(double[] x, double[] y, double[] motion, double mass, Color color) {
