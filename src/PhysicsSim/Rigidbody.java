@@ -9,15 +9,13 @@ class Rigidbody {
     //but in order to preserve a linear interpolation in between the minimum and maximum energy conservation values (in keeping with conservation of momentum)
     //the squared version of this constant should be used. However, since it only ever appears within a square root, the constant was simplified to be the square root of this linear interpolation/
     //It's almost as bad of a general-consensus choice, in my opinion, as calling standard deviation standard and absolute mean not as standard (although it should be).
-    public double COEFFICIENT_OF_FRICTION_DYNAMIC = 0.35;
-    public double COEFFICIENT_OF_FRICTION_STATIC = 0.5;
+    public double COEFFICIENT_OF_FRICTION = 0.35;
     public double GRAVITATIONAL_CONSTANT = 10.0;
     public double AIR_DENSITY = 0.01204;
     public double DRAG_COEFFICIENT = 0.95;
     public double CLAMP_LIMIT = 0.0;
     public double CONTACT_POINTS_MERGE_DISTANCE = 0.1;
-    public double HOLD_DAMPING = 1.0;
-    public double FLING_SPEED_LIMIT = 500.0;
+    public double MOUSE_SPEED_LIMIT = 500.0;
     public double MTV_EPSILON = 0.00165;
 
     public boolean universalGravity = false;
@@ -112,9 +110,16 @@ class Rigidbody {
         initialExternalForces[1] = motion[5];
         angularV = motion[6];
         initialExternalTorque = motion[7];
+        newposX = posX;
+        newposY = posY;
+        newvX = vX;
+        newvY = vY;
+        newaX = aX;
+        newaY = aY;
+        newangularV = angularV;
+        newangularA = angularA;
         COEFFICIENT_OF_RESTITUTION = Simulation.get(simID).COEFFICIENT_OF_RESTITUTION;
-        COEFFICIENT_OF_FRICTION_DYNAMIC = Simulation.get(simID).COEFFICIENT_OF_FRICTION_DYNAMIC;
-        COEFFICIENT_OF_FRICTION_STATIC = Simulation.get(simID).COEFFICIENT_OF_FRICTION_STATIC;
+        COEFFICIENT_OF_FRICTION = Simulation.get(simID).COEFFICIENT_OF_FRICTION;
 
         int length = Math.min(inputX.length, inputY.length);
         for (int i = 0; i < length; i = i + 1) {
@@ -266,6 +271,7 @@ class Rigidbody {
         }
 
         Simulation.get(simID).getSAPCell(0, 0).addBox(ID);
+        Simulation.get(simID).BVHtrees.get(0).addBox(ID);
 
     }
 
@@ -281,7 +287,9 @@ class Rigidbody {
                     rigidbodies.get(i).calcMotion(dt);
                 }
                 else if (rigidbodies.get(i).vX != 0.0 || rigidbodies.get(i).vY != 0.0 || rigidbodies.get(i).angularV != 0.0) {
-                    rigidbodies.get(i).calcMotionFreeMove(dt, true);
+                    rigidbodies.get(i).newposX = rigidbodies.get(i).posX;
+                    rigidbodies.get(i).newposY = rigidbodies.get(i).posY;
+                    rigidbodies.get(i).integrateMotion(dt);
                 }
                 //if (rigidbodies.get(i).isHitbox) rigidbodies.get(i).findCollisions();
             }
@@ -296,20 +304,46 @@ class Rigidbody {
         }
     }
     private void calcMotion(double dt) {
-        //check for collisions and do one of two options for updating motion based on whether the rigidbody is colliding with another
-        boolean intersecting = !collidingIDs.isEmpty();
-
         newposX = posX;
         newposY = posY;
+        double[] posChange = new double[]{0.0, 0.0};
         newvX = vX;
         newvY = vY;
         newangularV = angularV;
+
+        //first handle joints, starting with mouse joint (though not technically a joint)
+        if (mouseHold) {
+            double vmX = (currentMouseX - lastMouseX) / dt;
+            double vmY = (currentMouseY - lastMouseY) / dt;
+            double magnitude = Math.sqrt(vmX * vmX + vmY * vmY);
+            if (magnitude > MOUSE_SPEED_LIMIT) {
+                vmX *= MOUSE_SPEED_LIMIT / magnitude;
+                vmY *= MOUSE_SPEED_LIMIT / magnitude;
+            }
+            double rX = currentMouseX - posX;
+            double rY = currentMouseY - posY;
+            double vimprel = vX - rY * angularV - vmX;
+            double jrX = -vimprel / ((1.0 / mass) + (1.0 / inertia) * rY * rY);
+            vimprel = vY + rX * angularV - vmY;
+            double jrY = -vimprel / ((1.0 / mass) + (1.0 / inertia) * rX * rX);
+            newvX += jrX / mass;
+            newvY += jrY / mass;
+            newangularV += (jrX * -rY + jrY * rX) / inertia;
+        }
+        if (mouseRelease) {
+            newvX = newvX + flingX;
+            newvY = newvY + flingY;
+            mouseRelease = false;
+        }
+
+        //check for collisions and do one of two options for updating motion based on whether the rigidbody is colliding with another
+        boolean intersecting = !collidingIDs.isEmpty();
+
         //dt is divided by the number of collisions so that acceleration and velocity are not repeatedly
         //applied, which would ultimately result in (for example) a 3x acceleration with 3 collision points
-        if (intersecting) dt = dt / contactPoints.size();
         if (intersecting) for (int h = 0; h < contactPoints.size(); h = h + 1) {
-            newposX = newposX + MTVs.get(h)[0];
-            newposY = newposY + MTVs.get(h)[1];
+            posChange[0] += MTVs.get(h)[0];
+            posChange[1] += MTVs.get(h)[1];
             double magnitude = Math.sqrt(MTVs.get(h)[0] * MTVs.get(h)[0] + MTVs.get(h)[1] * MTVs.get(h)[1]);
             if (Double.isNaN(magnitude)) magnitude = 0.0;
             double nX = MTVs.get(h)[0] / magnitude;
@@ -318,118 +352,77 @@ class Rigidbody {
                 nX = 0.0;
                 nY = 0.0;
             }
-            //ensure the objects are actually moving towards each other
-            if ((vX - getVX(collidingIDs.get(h))) * nX + (vY - getVY(collidingIDs.get(h))) * nY > 0.0) {
-                calcMotionFreeMove(dt, false);
-                continue;
-            }
-            if (collidingIDs.get(h) == -1 || !getIsMovable(collidingIDs.get(h))) {
-                calcMotionInfiniteMass(h, dt);
-                continue;
-            }
-            double rX = contactPoints.get(h)[0] - newposX;
-            double rY = contactPoints.get(h)[1] - newposY;
-            double r = Math.sqrt(rX * rX + rY * rY);
-            if (Double.isNaN(r)) r = 0.0;
+            double rX = contactPoints.get(h)[0] - posX;
+            double rY = contactPoints.get(h)[1] - posY;
             //the normal here is assumed to point towards this rigidbody and away from the other. For all intents and purposes,
             //this choice should not matter so long as it is treated consistently
             double rPerp1x = -rY;
             double rPerp1y = rX;
-            if (!Double.isNaN(MTVs.get(h)[0]) && !Double.isNaN(contactPoints.get(h)[0])) {
-                //use parallel axis theorem with angular momentum to determine rotation about the point and apply.
-                //Here, the translational velocity is split into along the normal (for rotation) and tangent to it (for sliding).
-                magnitude = newvX * nX + newvY * nY;
-                double ndotVx = magnitude * nX;
-                double ndotVy = magnitude * nY;
-                magnitude = newvX * -nY + newvY * nX;
-                double tdotVx = magnitude * -nY;
-                double tdotVy = magnitude * nX;
-                //calculate the amount to pivot by
-                double temp = aX * nX + aY * nY;
-                double ndotAx = temp * nX;
-                double ndotAy = temp * nY;
-                if (temp > 0.0) {
-                    ndotAx = 0.0;
-                    ndotAy = 0.0;
-                }
-                double pivotAngularA = (inertia * angularA + mass * (ndotAx * rY + ndotAy * -rX)) / (inertia + mass * r * r);
-                double pivotAngularV = ((inertia * newangularV + mass * (ndotVx * rY + ndotVy * -rX)) / (inertia + mass * r * r)) + pivotAngularA * dt;
-                pivotAboutPoint(pivotAngularV * dt, contactPoints.get(h)[0], contactPoints.get(h)[1]);
-                newposX = newposX + tdotVx * dt;
-                newposY = newposY + tdotVy * dt;
+            double rPerp2x = 0.0;
+            double rPerp2y = 0.0;
+            if (collidingIDs.get(h) <= -2 && mod(collidingIDs.get(h), 2) == 1) {
+                double radius = Point.get(((-collidingIDs.get(h) - 1) / 2) - 1).getSolidRadius();
+                rPerp2x = -nY * radius;
+                rPerp2y = nX * radius;
+            }
+            else if (collidingIDs.get(h) != -1) {
+                rPerp2x = -(contactPoints.get(h)[1] - getPosY(collidingIDs.get(h)));
+                rPerp2y = contactPoints.get(h)[0] - getPosX(collidingIDs.get(h));
+            }
+            //ensure the objects are actually moving towards each other
+            if (((vX + rPerp1x * angularV) - (getVX(collidingIDs.get(h)) + rPerp2x * getAngularV(collidingIDs.get(h)))) * nX + ((vY + rPerp1y * angularV) - (getVY(collidingIDs.get(h)) + rPerp2y * getAngularV(collidingIDs.get(h)))) * nY > 0.0) {
+                continue;
+            }
+            if (collidingIDs.get(h) == -1 || !getIsMovable(collidingIDs.get(h))) {
+                calcMotionInfiniteMass(h);
+                continue;
+            }
+            double jr = (vX + rPerp1x * angularV - getVX(collidingIDs.get(h)) - rPerp2x * getAngularV(collidingIDs.get(h))) * nX + (vY + rPerp1y * angularV - getVY(collidingIDs.get(h)) - rPerp2y * getAngularV(collidingIDs.get(h))) * nY;
+            jr = jr * -(1.0 + getCOEFFICIENT_OF_RESTITUTION(collidingIDs.get(h)));
+            double temp1 = rPerp1x * nX + rPerp1y * nY;
+            double temp2 = rPerp2x * nX + rPerp2y * nY;
+            jr = jr / ((1.0 / mass) + (1.0 / getMass(collidingIDs.get(h))) + (1.0 / inertia) * temp1 * temp1 + (1.0 / getInertia(collidingIDs.get(h))) * temp2 * temp2);
 
-                //next, update the velocity in an impulse-based reaction model
+            double vtrel = ((vX + rPerp1x * angularV) - (getVX(collidingIDs.get(h)) + rPerp2x * getAngularV(collidingIDs.get(h)))) * -nY;
+            vtrel += ((vY + rPerp1y * angularV) - (getVY(collidingIDs.get(h)) + rPerp2y * getAngularV(collidingIDs.get(h)))) * nX;
+            double friction = getCOEFFICIENT_OF_FRICTION(collidingIDs.get(h)) * jr * -Math.signum(vtrel);
+            temp1 = rPerp1x * -nY + rPerp1y * nX;
+            temp2 = rPerp2x * -nY + rPerp2y * nX;
+            double frictionMax = -vtrel / ((1.0 / mass) + (1.0 / inertia) * temp1 * temp1 + (1.0 / getMass(collidingIDs.get(h))) + (1.0 / getInertia(collidingIDs.get(h))) * temp2 * temp2);
+            friction = Math.min(Math.abs(frictionMax), Math.abs(friction)) * -Math.signum(vtrel);
 
-                double rPerp2x = 0.0;
-                double rPerp2y = 0.0;
-                if (collidingIDs.get(h) <= -2 && mod(collidingIDs.get(h), 2) == 1) {
-                    double radius = Point.get(((-collidingIDs.get(h) - 1) / 2) - 1).getSolidRadius();
-                    rPerp2x = -nY * radius;
-                    rPerp2y = nX * radius;
-                }
-                else {
-                    rPerp2x = -(contactPoints.get(h)[1] - getPosY(collidingIDs.get(h)));
-                    rPerp2y = contactPoints.get(h)[0] - getPosX(collidingIDs.get(h));
-                }
-                double jr = (newvX + rPerp1x * newangularV - getVX(collidingIDs.get(h)) - rPerp2x * getAngularV(collidingIDs.get(h))) * nX + (newvY + rPerp1y * newangularV - getVY(collidingIDs.get(h)) - rPerp2y * getAngularV(collidingIDs.get(h))) * nY;
-                jr = jr * -(1.0 + getCOEFFICIENT_OF_RESTITUTION(collidingIDs.get(h)));
-                double temp1 = rPerp1x * nX + rPerp1y * nY;
-                double temp2 = rPerp2x * nX + rPerp2y * nY;
-                jr = jr / ((1.0 / mass) + (1.0 / getMass(collidingIDs.get(h))) + (1.0 / inertia) * temp1 * temp1 + (1.0 / getInertia(collidingIDs.get(h))) * temp2 * temp2);
-                double vtrel = (newvX + rPerp1x * newangularV) * -nY + (newvY + rPerp1y * newangularV) * nX;
-                vtrel = vtrel - ((getVX(collidingIDs.get(h)) + rPerp2x * getAngularV(collidingIDs.get(h))) * -nY + (getVY(collidingIDs.get(h)) + rPerp2y * getAngularV(collidingIDs.get(h))) * nX);
-                temp1 = -temp;
-                double friction = 0.0;
-                if (temp1 > 0.0) {
-                    if (vtrel > -CLAMP_LIMIT && vtrel < CLAMP_LIMIT && Math.abs(aX * -nY + aY * nX) <= getCOEFFICIENT_OF_FRICTION_STATIC(collidingIDs.get(h)) * temp1) friction = mass * (aX * -nY + aY * nX) * -Math.signum(vtrel);
-                    else friction = mass * getCOEFFICIENT_OF_FRICTION_DYNAMIC(collidingIDs.get(h)) * temp1 * -Math.signum(vtrel);
-                }
-                double fx = friction * -nY * dt;
-                double fy = friction * nX * dt;
-                double adotTx = aX - ndotAx;
-                double adotTy = aY - ndotAy;
+            newvX = newvX + (jr / mass) * nX + (friction / mass) * -nY;
+            newvY = newvY + (jr / mass) * nY + (friction / mass) * nX;
+            if (!lockedRotation) newangularV = newangularV + (jr / inertia) * (rPerp1x * nX + rPerp1y * nY) + (friction / inertia) * (rPerp1x * -nY + rPerp1y * nX);
 
-                newvX = newvX + (jr / mass) * nX + (fx / mass) + adotTx * dt;
-                newvY = newvY + (jr / mass) * nY + (fy / mass) + adotTy * dt;
-                if (!lockedRotation) newangularV = newangularV + (jr / inertia) * (rPerp1x * nX + rPerp1y * nY) + ((fx * rPerp1x + fy * rPerp1y) / inertia) + angularA * dt;
+            if (collidingIDs.get(h) <= -2 && mod(collidingIDs.get(h), 2) == 1) {
+                int tempIndex = ((-collidingIDs.get(h) - 1) / 2) - 1;
+                int softbodyIndex = Point.get(tempIndex).parentSoftbody;
+                int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf(tempIndex);
+                Point point1 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex));
+                Point point2 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % Softbody.get(softbodyIndex).boundarySize()));
+                double update = -(jr / getMass(collidingIDs.get(h))) * nX;
+                point1.changeVX(update);
+                point2.changeVX(update);
+                update = -(jr / getMass(collidingIDs.get(h))) * nY;
+                point1.changeVY(update);
+                point2.changeVY(update);
 
-                if (collidingIDs.get(h) <= -2 && mod(collidingIDs.get(h), 2) == 1) {
-                    int tempIndex = ((-collidingIDs.get(h) - 1) / 2) - 1;
-                    int softbodyIndex = Point.get(tempIndex).parentSoftbody;
-                    int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf(tempIndex);
-                    Point point1 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex));
-                    Point point2 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % Softbody.get(softbodyIndex).boundarySize()));
-                    double magnitude2 = getAX(collidingIDs.get(h)) * nX + getAY(collidingIDs.get(h)) * nY;
-                    double ndotAx2 = magnitude2 * nX;
-                    double ndotAy2 = magnitude2 * nY;
-                    if (magnitude < 0.0) {
-                        ndotAx2 = 0.0;
-                        ndotAy2 = 0.0;
-                    }
-                    double tdotAx2 = getAX(collidingIDs.get(h)) - ndotAx2;
-                    double tdotAy2 = getAY(collidingIDs.get(h)) - ndotAy2;
-                    double update = -(jr / getMass(collidingIDs.get(h))) * nX - (fx / getMass(collidingIDs.get(h))) + tdotAx2 * dt;
-                    point1.changeVX(update);
-                    point2.changeVX(update);
-                    update = -(jr / getMass(collidingIDs.get(h))) * nY - (fy / getMass(collidingIDs.get(h))) + tdotAy2 * dt;
-                    point1.changeVY(update);
-                    point2.changeVY(update);
-
-                    magnitude = Math.sqrt(MTVs.get(h)[0] * MTVs.get(h)[0] + MTVs.get(h)[1] * MTVs.get(h)[1]);
-                    double multiplier = -((magnitude - MTV_EPSILON) / magnitude) * (mass / (getMass(collidingIDs.get(h))));
-                    multiplier *= 1.0 + (MTV_EPSILON / Math.abs(multiplier));
-                    point1.changeX(MTVs.get(h)[0] * multiplier);
-                    point2.changeX(MTVs.get(h)[0] * multiplier);
-                    point1.changeY(MTVs.get(h)[1] * multiplier);
-                    point2.changeY(MTVs.get(h)[1] * multiplier);
-                }
+                magnitude = Math.sqrt(MTVs.get(h)[0] * MTVs.get(h)[0] + MTVs.get(h)[1] * MTVs.get(h)[1]);
+                double multiplier = -((magnitude - MTV_EPSILON) / magnitude) * (mass / (getMass(collidingIDs.get(h))));
+                multiplier *= 1.0 + (MTV_EPSILON / Math.abs(multiplier));
+                point1.changeX(MTVs.get(h)[0] * multiplier);
+                point2.changeX(MTVs.get(h)[0] * multiplier);
+                point1.changeY(MTVs.get(h)[1] * multiplier);
+                point2.changeY(MTVs.get(h)[1] * multiplier);
             }
         }
-        if (intersecting) dt = dt * contactPoints.size();
 
-        if (!intersecting && !mouseHold)  {
-            calcMotionFreeMove(dt, true);
-        }
+        integrateMotion(dt);
+
+
+        newposX += posChange[0];
+        newposY += posChange[1];
 
         newaX = initialExternalForces[0];
         newaY = initialExternalForces[1];
@@ -442,36 +435,6 @@ class Rigidbody {
         if (airResistance || buoyancy) {
             calculateAirResistance();
         }
-
-        if (mouseHold) {
-            double vmX = (currentMouseX - lastMouseX) / dt;
-            double vmY = (currentMouseY - lastMouseY) / dt;
-            double rX = newposX - currentMouseX;
-            double rY = newposY - currentMouseY;
-            double r = Math.sqrt(rX * rX + rY * rY);
-            double pivotAngularA = (inertia * newangularA + mass * (aX * -rY + aY * rX)) / (inertia + mass * r * r);
-            double pivotAngularV = (inertia * newangularV + mass * ((newvX - vmX) * -rY + (newvY - vmY) * rX)) / (inertia + mass * r * r) + pivotAngularA * dt;
-            newposX = newposX + (currentMouseX - lastMouseX);
-            newposY = newposY + (currentMouseY - lastMouseY);
-            pivotAboutPoint(pivotAngularV * dt, currentMouseX, currentMouseY);
-
-
-            double damping = Math.min(Math.abs(newangularV), HOLD_DAMPING) * -Math.signum(newangularV);
-            newangularV = newangularV + (damping * dt);
-            double adotX = (aX * -rY + aY * rX) * (-rY / (r * r));
-            double adotY = (aX * -rY + aY * rX) * (rX / (r * r));
-            double vdotX = (newvX * -rY + newvY * rX) * (-rY / (r * r));
-            double vdotY = (newvX * -rY + newvY * rX) * (rX / (r * r));
-            newvX = vdotX + adotX * dt;
-            newvY = vdotY + adotY * dt;
-        }
-        if (mouseRelease) {
-            newvX = newvX + flingX;
-            newvY = newvY + flingY;
-            mouseRelease = false;
-        }
-
-
     }
     static void clearCollisionInformation(int simID) {
         for (Rigidbody rigidbody : rigidbodies) {
@@ -615,10 +578,9 @@ class Rigidbody {
         }
         return(intersecting);
     }
-    private void calcMotionInfiniteMass(int index, double dt) {
-        double rX = contactPoints.get(index)[0] - newposX;
-        double rY = contactPoints.get(index)[1] - newposY;
-        double r = Math.sqrt(rX * rX + rY * rY);
+    private void calcMotionInfiniteMass(int index) {
+        double rX = contactPoints.get(index)[0] - posX;
+        double rY = contactPoints.get(index)[1] - posY;
         double rPerp1x = -rY;
         double rPerp1y = rX;
         double magnitude = Math.sqrt(MTVs.get(index)[0] * MTVs.get(index)[0] + MTVs.get(index)[1] * MTVs.get(index)[1]);
@@ -628,87 +590,43 @@ class Rigidbody {
             nX = 0.0;
             nY = 0.0;
         }
-        magnitude = newvX * nX + newvY * nY;
-        double ndotVx = magnitude * nX;
-        double ndotVy = magnitude * nY;
-        magnitude = newvX * -nY + newvY * nX;
-        double tdotVx = magnitude * -nY;
-        double tdotVy = magnitude * nX;
-        //calculate the amount to pivot by
-        double temp = aX * nX + aY * nY;
-        double ndotAx = temp * nX;
-        double ndotAy = temp * nY;
-        if (temp > 0.0) {
-            ndotAx = 0.0;
-            ndotAy = 0.0;
-        }
-        double pivotAngularA = (inertia * angularA + mass * (ndotAx * -rY + ndotAy * rX)) / (inertia + mass * r * r);
-        double pivotAngularV = ((inertia * newangularV + mass * (ndotVx * -rY + ndotVy * rX)) / (inertia + mass * r * r)) + pivotAngularA * dt;
-        pivotAboutPoint(pivotAngularV * dt, contactPoints.get(index)[0], contactPoints.get(index)[1]);
-        newposX = newposX + tdotVx * dt;
-        newposY = newposY + tdotVy * dt;
-
         double rPerp2x = -(contactPoints.get(index)[1] - Rigidbody.getPosY(collidingIDs.get(index)));
         double rPerp2y = contactPoints.get(index)[0] - Rigidbody.getPosX(collidingIDs.get(index));
         if (Double.isNaN(rPerp2x)) {
             rPerp2x = 0.0;
             rPerp2y = 0.0;
         }
-        double jr = (newvX + rPerp1x * newangularV - getVX(collidingIDs.get(index)) - rPerp2x * getAngularV(collidingIDs.get(index))) * nX + (newvY + rPerp1y * newangularV - getVY(collidingIDs.get(index)) - rPerp2y * getAngularV(collidingIDs.get(index))) * nY;
+        double jr = (vX + rPerp1x * angularV - getVX(collidingIDs.get(index)) - rPerp2x * getAngularV(collidingIDs.get(index))) * nX + (vY + rPerp1y * angularV - getVY(collidingIDs.get(index)) - rPerp2y * getAngularV(collidingIDs.get(index))) * nY;
         jr = jr * -(1.0 + getCOEFFICIENT_OF_RESTITUTION(collidingIDs.get(index)));
         double temp1 = rPerp1x * nX + rPerp1y * nY;
         jr = jr / ((1.0 / mass) + (1.0 / inertia) * temp1 * temp1);
-        double vtrel = (newvX + rPerp1x * newangularV) * -nY + (newvY + rPerp1y * newangularV) * nX;
-        vtrel = vtrel - ((getVX(collidingIDs.get(index)) + rPerp2x * getAngularV(collidingIDs.get(index))) * -nY + (getVY(collidingIDs.get(index)) + rPerp2y * getAngularV(collidingIDs.get(index))) * nX);
-        double temp2 = -temp;
-        double friction = 0.0;
-        if (temp2 > 0.0) {
-            if (vtrel > -CLAMP_LIMIT && vtrel < CLAMP_LIMIT && Math.abs(aX * -nY + aY * nX) <= getCOEFFICIENT_OF_FRICTION_STATIC(collidingIDs.get(index)) * temp2) friction = mass * (aX * -nY + aY * nX) * -Math.signum(vtrel);
-            else friction = mass * getCOEFFICIENT_OF_FRICTION_DYNAMIC(collidingIDs.get(index)) * temp2 * -Math.signum(vtrel);
-        }
-        double fx = friction * -nY * dt;
-        double fy = friction * nX * dt;
-        double adotTx = aX - ndotAx;
-        double adotTy = aY - ndotAy;
 
-        newvX = newvX + (jr / mass) * nX + (fx / mass) + adotTx * dt;
-        newvY = newvY + (jr / mass) * nY + (fy / mass) + adotTy * dt;
-        if (!lockedRotation) {
-            newangularV = newangularV + (jr / inertia) * (rPerp1x * nX + rPerp1y * nY) + ((fx * rPerp1x + fy * rPerp1y) / inertia) + angularA * dt;
-        }
+        double vtrel = ((vX + rPerp1x * angularV) - (getVX(collidingIDs.get(index)) + rPerp2x * getAngularV(collidingIDs.get(index)))) * -nY;
+        vtrel += ((vY + rPerp1y * angularV) - (getVY(collidingIDs.get(index)) + rPerp2y * getAngularV(collidingIDs.get(index)))) * nX;
+        double friction = getCOEFFICIENT_OF_FRICTION(collidingIDs.get(index)) * jr * -Math.signum(vtrel);
+        temp1 = rPerp1x * -nY + rPerp1y * nX;
+        double frictionMax = -vtrel / ((1.0 / mass) + (1.0 / inertia) * temp1 * temp1);
+        friction = Math.min(Math.abs(frictionMax), Math.abs(friction)) * -Math.signum(vtrel);
+
+        newvX = newvX + (jr / mass) * nX + (friction / mass) * -nY;
+        newvY = newvY + (jr / mass) * nY + (friction / mass) * nX;
+        if (!lockedRotation) newangularV = newangularV + (jr / inertia) * (rPerp1x * nX + rPerp1y * nY) + (friction / inertia) * (rPerp1x * -nY + rPerp1y * nX);
 
     }
-    private void calcMotionFreeMove(double dt, boolean canUpdatePosition) {
-        if (canUpdatePosition) {
-            //first update linear position and rotational position
-            newposX = posX + vX * dt + 0.5 * aX * dt * dt;
-            newposY = posY + vY * dt + 0.5 * aY * dt * dt;
-            pivotAboutPoint(angularV * dt + 0.5 * angularA * dt * dt, posX, posY);
-            newvX = vX + aX * dt;
-            newvY = vY + aY * dt;
-            newangularV = angularV + angularA * dt;
-            //then update linear and angular velocity
-            //finally, update linear and angular acceleration (constant for now)
-            newaX = aX;
-            newaY = aY;
-            newangularA = angularA;
-        }
-        else {
-            //first update linear position and rotational position
-            newposX = newposX + newvX * dt + 0.5 * aX * dt * dt;
-            newposY = newposY + newvY * dt + 0.5 * aY * dt * dt;
-            pivotAboutPoint(newangularV * dt + 0.5 * angularA * dt * dt, newposX, newposY);
-            newvX = newvX + aX * dt;
-            newvY = newvY + aY * dt;
-            newangularV = newangularV + angularA * dt;
-        }
+    private void integrateMotion(double dt) {
+        newposX += newvX * dt;
+        newposY += newvY * dt;
+        rotateAroundCenter(dt);
+        newvX += aX * dt;
+        newvY += aY * dt;
+        newangularV += angularA * dt;
     }
     private void updateMotion(double dt) {
         newposX += otherUpdatePosX;
         newposY += otherUpdatePosY;
         if (vUpdateCount == 0) vUpdateCount = 1;
-        newvX += otherUpdateVX / vUpdateCount;
-        newvY += otherUpdateVY / vUpdateCount;
+        newvX += otherUpdateVX / (vUpdateCount + collidingIDs.size());
+        newvY += otherUpdateVY / (vUpdateCount + collidingIDs.size());
         vUpdateCount = 0;
         newaX += otherUpdateAX;
         newaY += otherUpdateAY;
@@ -723,7 +641,7 @@ class Rigidbody {
         if (!Double.isNaN(newposX)) posX = newposX;
         if (!Double.isNaN(newposY)) posY = newposY;
         if (!Double.isNaN(newvX)) vX = newvX;
-        if (!Double.isNaN(newvY))vY = newvY;
+        if (!Double.isNaN(newvY)) vY = newvY;
         if (!Double.isNaN(newaX)) aX = newaX;
         if (!Double.isNaN(newaY)) aY = newaY;
         if (!Double.isNaN(newangularV)) angularV = newangularV;
@@ -873,7 +791,7 @@ class Rigidbody {
         flingX = (x - lastMouseX) / dt;
         flingY = (y - lastMouseY) / dt;
         double multiplier = Math.sqrt(flingX * flingX + flingY * flingY);
-        multiplier = Math.min(multiplier, FLING_SPEED_LIMIT) / multiplier;
+        multiplier = Math.min(multiplier, MOUSE_SPEED_LIMIT) / multiplier;
         flingX = flingX * multiplier;
         if (Double.isNaN(flingX)) flingX = 0.0;
         flingY = flingY * multiplier;
@@ -904,27 +822,22 @@ class Rigidbody {
         }
         return (isInside);
     }
-    private void pivotAboutPoint(double theta, double pointX, double pointY) {
+    private void rotateAroundCenter(double dt) {
         if (!lockedRotation) {
+            double theta = angularV * dt;
             double sin = Math.sin(theta);
             double cos = Math.cos(theta);
-            double centerX = -(pointX - newposX);
-            double centerY = -(pointY - newposY);
-            double shiftX = centerX * cos - centerY * sin;
-            double shiftY = centerX * sin + centerY * cos;
             for (int i = 0; i < xPoints.size(); i = i + 1) {
                 double x = xPoints.get(i);
-                x = x - (pointX - newposX);
                 double y = yPoints.get(i);
-                y = y - (pointY - newposY);
-                xPoints.set(i, x * cos - y * sin - shiftX);
+                xPoints.set(i, x * cos - y * sin);
                 if (Double.isNaN(leftBoundBox) || xPoints.get(i) < leftBoundBox) {
                     leftBoundBox = xPoints.get(i);
                 }
                 if (Double.isNaN(rightBoundBox) || xPoints.get(i) > rightBoundBox) {
                     rightBoundBox = xPoints.get(i);
                 }
-                yPoints.set(i, y * cos + x * sin - shiftY);
+                yPoints.set(i, y * cos + x * sin);
                 if (Double.isNaN(topBoundBox) || yPoints.get(i) < topBoundBox) {
                     topBoundBox = yPoints.get(i);
                 }
@@ -932,15 +845,9 @@ class Rigidbody {
                     bottomBoundBox = yPoints.get(i);
                 }
                 if (triangles.get(i).doesExist()) {
-                    triangles.get(i).shift(pointX - newposX, pointY - newposY);
                     triangles.get(i).rotate(theta);
-                    triangles.get(i).shift(shiftX, shiftY);
                 }
             }
-            double x = newposX;
-            double y = newposY;
-            newposX = (x - pointX) * cos - (y - pointY) * sin + pointX;
-            newposY = (y - pointY) * cos + (x - pointX) * sin + pointY;
         }
     }
 
@@ -1164,7 +1071,27 @@ class Rigidbody {
     }
     public static double getAngularV(int index) {
         if (index >= 0) return(Rigidbody.get(index).getAngularV());
+        else if (index <= -2 && mod(index, 2) == 0) return(Point.get(-index / 2 - 1).getAngularV());
         else return(0.0);
+    }
+    public void changeX(double update) {
+        otherUpdatePosX += update;
+    }
+    public void changeY(double update) {
+        otherUpdatePosY += update;
+    }
+    public void changeVX(double update) {
+        otherUpdateVX += update;
+        vUpdateCount += 1;
+    }
+    public void changeVY(double update) {
+        otherUpdateVY += update;
+    }
+    public void changeAX(double update) {
+        otherUpdateAX += update;
+    }
+    public void changeAY(double update) {
+        otherUpdateAY += update;
     }
     public static double getMass(int index) {
         if (index >= 0) return(Rigidbody.get(index).getMass());
@@ -1244,52 +1171,28 @@ class Rigidbody {
             else return(Math.sqrt((a * a + b * b) * 0.5));
         }
     }
-    public double getCOEFFICIENT_OF_FRICTION_DYNAMIC(int index) {
+    public double getCOEFFICIENT_OF_FRICTION(int index) {
         if (index >= 0) {
-            if (adoptOnlyOtherSurface) return(Rigidbody.get(index).COEFFICIENT_OF_FRICTION_DYNAMIC);
-            else return((Rigidbody.get(index).COEFFICIENT_OF_FRICTION_DYNAMIC + COEFFICIENT_OF_FRICTION_DYNAMIC) * 0.5);
+            if (adoptOnlyOtherSurface) return(Rigidbody.get(index).COEFFICIENT_OF_FRICTION);
+            else return((Rigidbody.get(index).COEFFICIENT_OF_FRICTION + COEFFICIENT_OF_FRICTION) * 0.5);
         }
         else if (index <= -2 && mod(index, 2) == 0) {
-            if (adoptOnlyOtherSurface) return(Point.get((-index / 2) - 1).COEFFICIENT_OF_FRICTION_DYNAMIC);
-            else return((Point.get((-index / 2) - 1).COEFFICIENT_OF_FRICTION_DYNAMIC + COEFFICIENT_OF_FRICTION_DYNAMIC) * 0.5);
+            if (adoptOnlyOtherSurface) return(Point.get((-index / 2) - 1).COEFFICIENT_OF_FRICTION);
+            else return((Point.get((-index / 2) - 1).COEFFICIENT_OF_FRICTION + COEFFICIENT_OF_FRICTION) * 0.5);
         }
         else if (index <= -2 && mod(index, 2) == 1) {
             int softbodyIndex = Point.get((-index - 1) / 2 - 1).parentSoftbody;
             int size = Softbody.get(softbodyIndex).boundarySize();
             int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf((-index - 1) / 2 - 1);
-            double val1 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).COEFFICIENT_OF_FRICTION_DYNAMIC;
-            double val2 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).COEFFICIENT_OF_FRICTION_DYNAMIC;
+            double val1 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).COEFFICIENT_OF_FRICTION;
+            double val2 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).COEFFICIENT_OF_FRICTION;
             double a = 0.5 * (val1 + val2);
             if (adoptOnlyOtherSurface) return(a);
-            else return(0.5 * (a + COEFFICIENT_OF_FRICTION_DYNAMIC));
+            else return(0.5 * (a + COEFFICIENT_OF_FRICTION));
         }
         else {
-            if (adoptOnlyOtherSurface) return(Simulation.get(simID).COEFFICIENT_OF_FRICTION_DYNAMIC);
-            else return(Simulation.get(simID).COEFFICIENT_OF_FRICTION_DYNAMIC + COEFFICIENT_OF_FRICTION_DYNAMIC * 0.5);
-        }
-    }
-    public double getCOEFFICIENT_OF_FRICTION_STATIC(int index) {
-        if (index >= 0) {
-            if (adoptOnlyOtherSurface) return(Rigidbody.get(index).COEFFICIENT_OF_FRICTION_STATIC);
-            else return((Rigidbody.get(index).COEFFICIENT_OF_FRICTION_STATIC + COEFFICIENT_OF_FRICTION_STATIC) * 0.5);
-        }
-        else if (index <= -2 && mod(index, 2) == 0) {
-            if (adoptOnlyOtherSurface) return(Point.get((-index / 2) - 1).COEFFICIENT_OF_FRICTION_STATIC);
-            else return((Point.get((-index / 2) - 1).COEFFICIENT_OF_FRICTION_STATIC + COEFFICIENT_OF_FRICTION_STATIC) * 0.5);
-        }
-        else if (index <= -2 && mod(index, 2) == 1) {
-            int softbodyIndex = Point.get((-index - 1) / 2 - 1).parentSoftbody;
-            int size = Softbody.get(softbodyIndex).boundarySize();
-            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf((-index - 1) / 2 - 1);
-            double val1 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).COEFFICIENT_OF_FRICTION_STATIC;
-            double val2 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).COEFFICIENT_OF_FRICTION_STATIC;
-            double a = 0.5 * (val1 + val2);
-            if (adoptOnlyOtherSurface) return(a);
-            else return(0.5 * (a + COEFFICIENT_OF_FRICTION_STATIC));
-        }
-        else {
-            if (adoptOnlyOtherSurface) return(Simulation.get(simID).COEFFICIENT_OF_FRICTION_STATIC);
-            else return(Simulation.get(simID).COEFFICIENT_OF_FRICTION_STATIC + COEFFICIENT_OF_FRICTION_STATIC * 0.5);
+            if (adoptOnlyOtherSurface) return(Simulation.get(simID).COEFFICIENT_OF_FRICTION);
+            else return(Simulation.get(simID).COEFFICIENT_OF_FRICTION + COEFFICIENT_OF_FRICTION * 0.5);
         }
     }
     public static boolean getIsMovable(int index) {

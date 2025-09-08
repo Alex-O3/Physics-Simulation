@@ -2,12 +2,14 @@ package PhysicsSim;
 
 class AABBox {
     public int parentID = -1;
+    public int boxID;
     //0 - infinity are rigidbodies, even negative numbers are points, and odd negative numbers are softbodies
     //very important: this is different from the colliding ID convention in how the odd negative IDs are used
     public Endpoint minX;
     public Endpoint maxX;
     public Endpoint minY;
     public Endpoint maxY;
+    public long mortonCode;
     public AABBox(int parentID, int boxIndex) {
         this.parentID = parentID;
         minX = new Endpoint(boxIndex, true);

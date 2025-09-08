@@ -9,7 +9,14 @@ public class Main {
     public static double dt = (double) (timeStep) / 1000.0;
     public static void main(String[] args) throws Exception {
         Simulation sim = new Simulation(0, 0 ,500, 500,1.0, true);
-        sim.setupDemo(8);
+        Simulation.showCreationInfo = true;
+
+        sim.setupDemo(10);
+        //sim.showVelocityVector(1.0);
+
+        /*
+
+        */
 
         long time = 0;
         System.out.println(sim.size());
@@ -17,6 +24,7 @@ public class Main {
             try {
                 if (time < timeStep) Thread.sleep(timeStep);
                 time = sim.stepToNextFrame(dt, 5);
+                //sim.getObject(151).setAngularMovement(new double[]{-Math.PI, 0.0});
             }
             catch (Exception e) {
                 System.out.println(e);

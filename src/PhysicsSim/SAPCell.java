@@ -30,7 +30,6 @@ import java.util.ArrayList;
             aabb.updateBox();
         }
         insertionSort(endpointsX);
-        insertionSort(endpointsY);
         sweep();
     }
     public void sweep() {
@@ -45,6 +44,8 @@ import java.util.ArrayList;
                     double y2min = aabbs.get(activelyChecked.get(j)).minY.value;
                     double y2max = aabbs.get(activelyChecked.get(j)).maxY.value;
                     if (y1min <= y2max && y1max >= y2min) {
+                        if (checkIfSameSoftbody(endpoint.boxIndex, activelyChecked.get(j))) continue;
+
                         pairs.add(endpoint.boxIndex);
                         pairs.add(activelyChecked.get(j));
                     }
@@ -58,6 +59,21 @@ import java.util.ArrayList;
         activelyChecked.clear();
     }
 
+    private boolean checkIfSameSoftbody(int boxIndex1, int boxIndex2) {
+        if (aabbs.get(boxIndex1).parentID <= -1 && Rigidbody.mod(aabbs.get(boxIndex1).parentID, 2) == 1) {
+            int softbodyID = -aabbs.get(boxIndex1).parentID / 2;
+            if (aabbs.get(boxIndex2).parentID <= -2 && Rigidbody.mod(aabbs.get(boxIndex2).parentID, 2) == 0) {
+                if (Point.get(-aabbs.get(boxIndex2).parentID / 2 - 1).parentSoftbody == softbodyID) return(true);
+            }
+        }
+        else if (aabbs.get(boxIndex2).parentID <= -1 && Rigidbody.mod(aabbs.get(boxIndex2).parentID, 2) == 1) {
+            int softbodyID = -aabbs.get(boxIndex2).parentID / 2;
+            if (aabbs.get(boxIndex1).parentID <= -2 && Rigidbody.mod(aabbs.get(boxIndex1).parentID, 2) == 0) {
+                if (Point.get(-aabbs.get(boxIndex1).parentID / 2 - 1).parentSoftbody == softbodyID) return(true);
+            }
+        }
+        return(false);
+    }
     private void insertionSort(ArrayList<Endpoint> endpointsList) {
         for (int i = 1; i < endpointsList.size(); i = i + 1) {
             if (endpointsList.get(i).value < endpointsList.get(i - 1).value || (endpointsList.get(i).value == endpointsList.get(i - 1).value && endpointsList.get(i).isMin)) { //here is the compare function

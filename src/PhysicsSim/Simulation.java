@@ -4,11 +4,24 @@ import java.awt.*;
 import java.util.ArrayList;
 
 public class Simulation {
-    /*Optimizations to improve performance may still may be made.
-    As the broad phase first does a distance check between every object pair, time complexity is O(n^2) with n as the number of object.
-    Options to improve include spatial hashing, for instance, so that only objects in the same tile will be checked with no expense paid to those too far away.
-    Porting the project to some other language or utilizing the GPU, perhaps through OpenCL, would allow quicker computation through parallelization.
+    /*Porting the project to some other language or utilizing the GPU, perhaps through OpenCL, would allow quicker computation through parallelization.
+    Switching between SAP and BVH optimizations (BVH still being improved), you may notice that they produce different outcomes.
+    This is because they find the AABB pairs in different orders and therefore the impulses in each set of collisions are calculated
+    and applied in different orders, producing different outcomes. This is most apparent in Demo 10. Fixing this issue is a later project.
+
+    Future feature ideas include making springs attachable to a given location within a ball OR rigidbody and having more
+        unique and/or custom spring structure options for softbodies, adding weld joints that bind
+        bodies together at a specified point (with a specified movement allowance with specific settings), hinge joints that bind a point of a body (not edge)
+        to the edge of a another, translational joints that bind edges together, muscle joints that can pull with tension,
+        merging two contacting points on the same edge into one in-between contact point
+        to give more convincing resting, adding a controller for moving alongside normals, improved visual scheme (though not the focus of the project),
+        more controller options, multi-threading, universal gravity optimizations through multipole expansions, or more. Many of these
+        are out of my reach for a long time.
     The simulation lacks continuous collision detection for between time steps, and higher time steps quickly lead to instability, particularly with softbodies.*/
+    //as an important note, the IDs of rigidbodies are often stored more globally as positive integers (including 0),
+    //points as negative even integers, and softbodies or softbody edges (depending on the use case) as the negative odd integers (in the latter case,
+    //-1 is the wall).
+
 
     public final int ID;
     private static int num = 0;
@@ -16,22 +29,21 @@ public class Simulation {
     public static boolean showCreationInfo = false;
     private static final ArrayList<Simulation> simulations = new ArrayList<>();
     final ArrayList<SAPCell> sapCells = new ArrayList<>();
+    public final ArrayList<BVHTreeRoot> BVHtrees = new ArrayList<>();
     final ArrayList<PhysicsObject> physicsObjects = new ArrayList<>();
     final ArrayList<Hitbox> hitboxes = new ArrayList<>();
-    final static Material defaultMaterial = new Material("Default", 10.0, 0.75, 0.35, 0.5);
+    final static Material defaultMaterial = new Material("Default", 10.0, 0.75, 0.35);
     final static ArrayList<Material> materials = new ArrayList<>();
 
     //physical constants told to Softbody, Point, and Rigidbody
     public double COEFFICIENT_OF_RESTITUTION = 0.75;
-    public double COEFFICIENT_OF_FRICTION_DYNAMIC = 0.35;
-    public double COEFFICIENT_OF_FRICTION_STATIC = 0.5;
+    public double COEFFICIENT_OF_FRICTION = 0.35;
     public double GRAVITATIONAL_CONSTANT = 10.0;
     public double AIR_DENSITY = 0.01204;
     public double DRAG_COEFFICIENT = 0.95;
     public double CLAMP_LIMIT = 0.0;
     public double CONTACT_POINTS_MERGE_DISTANCE = 0.1;
-    public double HOLD_DAMPING = 1.0;
-    public double FLING_SPEED_LIMIT = 500.0;
+    public double MOUSE_SPEED_LIMIT = 1000.0;
     public double MTV_EPSILON = 0.00165;
     public double POINT_MIN_RADIUS = 5.0;
     public double DAMPING_COEFFICIENT_RELATOR = 0.6;
@@ -51,10 +63,11 @@ public class Simulation {
     public boolean mouse = false;
     public boolean printKeys = false;
     public boolean drawing = true;
-    public int fpsCountingBuffer = 60;
+    private int fpsCountingBuffer = 60;
     private double fps = 60.0;
-    private double[] frameTimes = new double[60];
+    private double[] frameTimes = new double[fpsCountingBuffer];
     private int frameCountLoop = 0;
+    public boolean isSAPvsBVH = true;
 
     final Display display;
     public final double keysCacheRemovalBufferTime = 0.0;
@@ -71,6 +84,7 @@ public class Simulation {
         synchronizeSettings();
         simulations.add(this);
         new SAPCell(ID, 0, 0);
+        BVHTreeRoot tree = new BVHTreeRoot(ID, 8);
     }
 
     public void synchronizeSettings() {
@@ -81,8 +95,7 @@ public class Simulation {
             Rigidbody.get(i).DRAG_COEFFICIENT = DRAG_COEFFICIENT;
             Rigidbody.get(i).CLAMP_LIMIT = CLAMP_LIMIT;
             Rigidbody.get(i).CONTACT_POINTS_MERGE_DISTANCE = CONTACT_POINTS_MERGE_DISTANCE;
-            Rigidbody.get(i).HOLD_DAMPING = HOLD_DAMPING;
-            Rigidbody.get(i).FLING_SPEED_LIMIT = FLING_SPEED_LIMIT;
+            Rigidbody.get(i).MOUSE_SPEED_LIMIT = MOUSE_SPEED_LIMIT;
             Rigidbody.get(i).MTV_EPSILON = MTV_EPSILON;
             Rigidbody.get(i).worldTopBound = worldTopBound;
             Rigidbody.get(i).worldBottomBound = worldBottomBound;
@@ -101,7 +114,7 @@ public class Simulation {
             Point.get(i).DRAG_COEFFICIENT = DRAG_COEFFICIENT;
             Point.get(i).CLAMP_LIMIT = CLAMP_LIMIT;
             Point.get(i).CONTACT_POINTS_MERGE_DISTANCE = CONTACT_POINTS_MERGE_DISTANCE;
-            Point.get(i).FLING_SPEED_LIMIT = FLING_SPEED_LIMIT;
+            Point.get(i).MOUSE_SPEED_LIMIT = MOUSE_SPEED_LIMIT;
             Point.get(i).MTV_EPSILON = MTV_EPSILON;
             Point.get(i).worldTopBound = worldTopBound;
             Point.get(i).worldBottomBound = worldBottomBound;
@@ -122,17 +135,41 @@ public class Simulation {
             Softbody.get(i).MTV_EPSILON = MTV_EPSILON;
         }
     }
+    private int counterUntilTreeConstruction = 0;
+    boolean tempBoolean = true;
+    long lastRebalanceTime = 0;
     public long stepToNextFrame(double dt, int stepsPerFrame) {
+        if (tempBoolean && !isSAPvsBVH) {
+            BVHtrees.get(0).createTree();
+            tempBoolean = false;
+        }
+        if (counterUntilTreeConstruction == 0 && !isSAPvsBVH) {
+            long time = System.currentTimeMillis();
+            BVHtrees.get(0).rebalanceTree();
+            lastRebalanceTime = System.currentTimeMillis() - time;
+            System.out.println("Time to Rebalance: " + lastRebalanceTime);
+            tempBoolean = false;
+        }
+        counterUntilTreeConstruction += 1;
+        if (counterUntilTreeConstruction % 60 == 0) counterUntilTreeConstruction = 0;
         long beforeTime = System.currentTimeMillis();
         dt = dt / (double) stepsPerFrame;
         for (int frameCount = 0; frameCount < stepsPerFrame; frameCount = frameCount + 1) {
             if (mouse) display.mouseDrag(dt, stepsPerFrame);
             Rigidbody.clearCollisionInformation(ID);
             Point.clearCollisionInformation(ID);
-            for (SAPCell sap : sapCells) {
+            if (isSAPvsBVH) for (SAPCell sap : sapCells) {
                 sap.updateSort();
                 for (int i = 0; i < sap.pairs.size() / 2; i = i + 1) {
                     sap.aabbs.get(sap.pairs.get(2 * i)).findCollisions(sap.aabbs.get(sap.pairs.get(2 * i + 1)));
+                }
+            }
+            else for (BVHTreeRoot BVH : BVHtrees) {
+                BVH.updateBounds();
+                BVH.findPairs();
+
+                for (int i = 0; i < BVH.pairs.size() / 2; i = i + 1) {
+                    BVH.aabbs.get(BVH.pairs.get(2 * i)).findCollisions(BVH.aabbs.get(BVH.pairs.get(2 * i + 1)));
                 }
             }
             Rigidbody.finalizeCollisionInformation(ID);
@@ -166,13 +203,13 @@ public class Simulation {
         }
 
         long time = System.currentTimeMillis() - beforeTime;
-        frameCountLoop = frameCountLoop % 60;
+        frameCountLoop = frameCountLoop % fpsCountingBuffer;
         frameTimes[frameCountLoop] = (double) time / 1000.0;
         double sum = 0.0;
         for (int i = 0; i < frameTimes.length; i = i + 1) {
             sum += frameTimes[i];
         }
-        fps = 60.0 / sum;
+        fps = (double)fpsCountingBuffer / sum;
         frameCountLoop += 1;
         display.fps.setText("FPS: " + String.format("%.2f", fps));
         return(time);
@@ -184,34 +221,32 @@ public class Simulation {
                 System.out.println("Demo 3: Same as demo 1, but with buoyancy and air resistance turned on.");
             }
             case(1): {
-                if (demoID != 3) airResistance = false;
+                if (demoID != 3) AIR_DENSITY = AIR_DENSITY / 10.0;
                 addRigidbody(new double[]{-14.1, 7.3, 18.8, -10.9, 0.0, -26.6}, new double[]{-16.2, -20.7, 7.0, 23.7, -7.8, -0.8}, new double[]{200.0, 200.0, 0.0, 00.0, 0.0, 90.0, 0.0, 0.0}, 50.0, Color.blue);
-                addRigidbody(new double[]{-21.3, 48.5, 53.0, 5.0, -32.0}, new double[]{32.4, 20.7, -21.0, -21.0, -1.6}, new double[]{450.0, 100.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 40.0, Color.yellow);
+                addRigidbody(new double[]{-21.3, 48.5, 53.0, 5.0, -32.0}, new double[]{32.4, 20.7, -21.0, -21.0, -1.6}, new double[]{400.0, 100.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 40.0, Color.yellow);
                 //addRigidbody(new double[]{-500.0, 1000.0, 1000.0, -500.0}, new double[]{500.0, 500.0, 600.0, 600.0}, new double[]{250.0, 550.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 10000000.0, Color.green);
                 //addObstacle(new double[]{-500.0, 1000.0, 1000.0, -500.0}, new double[]{500.0, 500.0, 600.0, 600.0}, 1.0, Color.green);
                 addObstacle(new double[]{0.0, 300.0, 300.0, 0.0}, new double[]{250.0, 480.0, 500.0, 500.0}, 1.0, Color.green);
-                addBall(new double[]{100.0, 125.0, 0.0, 0.0, 0.0, 90.0}, 15.0, 20.0, Color.black);
+                addBall(new double[]{100.0, 125.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 15.0, 20.0, Color.black);
                 if (demoID == 1) System.out.println("Demo 1: shows basic rigidbodies physically interacting. Includes an immovable object.");
                 synchronizeSettings();
                 break;
             }
             case(2): {
-                COEFFICIENT_OF_FRICTION_DYNAMIC = 0.0;
-                COEFFICIENT_OF_FRICTION_STATIC = 0.0;
+                COEFFICIENT_OF_FRICTION = 0.0;
                 COEFFICIENT_OF_RESTITUTION = 0.25;
                 addRigidbody(new double[]{-50.0, 25.0, 25.0, -50.0}, new double[]{-25.0, -25.0, 25.0, 25.0}, new double[]{50.0, 460.0, 50.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 100.0, Color.black);
                 addRigidbody(new double[]{-12.5, 12.5, 12.5, -12.5}, new double[]{-12.5, -12.5, 12.5, 12.5}, new double[]{80.0, 397.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 1.0, Color.blue);
                 airResistance = false;
                 synchronizeSettings();
-                Rigidbody.get(1).COEFFICIENT_OF_FRICTION_DYNAMIC = 25.0;
-                Rigidbody.get(1).COEFFICIENT_OF_FRICTION_STATIC = 26.0;
+                Rigidbody.get(1).COEFFICIENT_OF_FRICTION = 5.0;
                 System.out.println("Demo 2: the top square has no starting velocity and is carried by friction between it and the bottom one with velocity. Friction and restitution unique to each surface-surface interaction.");
                 break;
             }
             case(4): {
-                addBall(new double[]{250.0, 250.0, 0.0, 0.0, 0.0, 0.0}, 25.0, 100000.0, Color.yellow);
-                addBall(new double[]{250.0, 100.0, 82.0, 0.0, 0.0, 0.0}, 10.0, 10000.0, Color.blue);
-                addBall(new double[]{50.0, 250.0, 0.0, 71.0, 0.0, 0.0}, 5.0, 1000.0, Color.red);
+                addBall(new double[]{250.0, 250.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 25.0, 100000.0, Color.yellow);
+                addBall(new double[]{250.0, 100.0, 82.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 10.0, 10000.0, Color.blue);
+                addBall(new double[]{50.0, 250.0, 0.0, 71.0, 0.0, 0.0, 0.0, 0.0}, 5.0, 1000.0, Color.red);
                 universalGravity = true;
                 airResistance = false;
                 bounds = false;
@@ -222,7 +257,7 @@ public class Simulation {
             case(5): {
                 addRigidbody(3, 20.0, new double[]{30.0, 450.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 10.0, Color.gray);
                 addRigidbody(4, 20.0, new double[]{400.0, 400.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 100.0, Color.blue);
-                addBall(new double[]{250.0, 450.0, 0.0, 0.0, 0.0, 90.0}, 25.0, 100.0, Color.blue);
+                addBall(new double[]{250.0, 420.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 25.0, 100.0, Color.blue);
                 addFace(new double[]{250.0, 250.0}, new double[]{500.0, 250.0}, 100.0, Color.green);
                 addFace(new double[]{250.0, 250.0}, new double[]{0.0, 250.0}, 100.0, Color.green);
                 addFace(new double[]{300.0, 100.0}, new double[]{400.0, 100.0}, 0.0, Color.green);
@@ -243,8 +278,8 @@ public class Simulation {
             case(7): {
                 addSpringSoftbody(new double[]{200.0, 475.0, 400.0, 100.0}, new double[]{400.0, 400.0, 325.0, 335.0}, new double[]{0.0, 0.0, 0.0, 90.0}, 500.0, Color.blue, 405.0, 15.0, 5.0 / Math.sqrt(2));
                 addObstacle(new double[]{0.0, 500.0, 500.0, 0.0}, new double[]{250.0, 250.0, 300.0, 300.0}, 0.0, Color.green);
-                addPressureSoftbody(new double[]{100.0, 25.0, 25.0, 100.0}, new double[]{50.0, 50.0, 125.0, 125.0}, new double[]{0.0, 0.0, 0.0, 90.0}, 500.0, Color.black, 1000.0, 50.0, 2000.0, 2.5);
-                addBall(new double[]{400.0, 50.0, 0.0, 0.0, 0.0, 90.0}, 25.0, 100.0, Color.yellow);
+                addPressureSoftbody(new double[]{100.0, 25.0, 25.0, 100.0}, new double[]{50.0, 50.0, 125.0, 125.0}, new double[]{0.0, 0.0, 0.0, 90.0}, 500.0, Color.black, 500.0, 50.0, 5000.0, 2.5);
+                addBall(new double[]{400.0, 50.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 25.0, 100.0, Color.yellow);
                 //addRigidbody(6, 25.0, new double[]{400.0, 50.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 100.0, Color.yellow);
                 addRigidbody(3, 40.0, new double[]{30.0, 450.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 100.0, Color.gray);
                 synchronizeSettings();
@@ -263,9 +298,9 @@ public class Simulation {
             case(9): {
                 bounds = false;
                 AIR_DENSITY = AIR_DENSITY / 10.0;
-                createMaterial("Ground1", 10.0, 0.1, 1.5, 1.6);
-                createMaterial("Ground2", 100.0, 0.5, 0.35, 0.4);
-                addBall(new double[]{250.0, 220.0, 0.0, 0.0, 0.0, 90.0}, 25.0, 100.0, Color.blue);
+                createMaterial("Ground1", 10.0, 0.1, 0.6);
+                createMaterial("Ground2", 100.0, 0.5, 0.5);
+                addBall(new double[]{250.0, 220.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 25.0, 100.0, Color.blue);
                 //addRigidbody(4, 25.0, new double[]{250.0, 250.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 100.0, Color.blue);
                 addObstacle(new double[]{-500.0, 1000.0, 1000.0, -500.0}, new double[]{400.0, 400.0, 500.0, 500.0}, 10.0, Color.green);
                 physicsObjects.get(0).addStandardControllerBundle();
@@ -284,14 +319,15 @@ public class Simulation {
                 break;
             }
             case(10): {
-                COEFFICIENT_OF_RESTITUTION = 1.0;
-                airResistance = false;
+                COEFFICIENT_OF_RESTITUTION = 0.99;
+                AIR_DENSITY /= 10.0;
+                COEFFICIENT_OF_FRICTION = 0.0;
                 for (int i = 0; i < 2000; i = i + 1) {
-                    addBall(new double[]{Math.random() * 500.0, Math.random() * 500.0, Math.random() * 50.0 * Math.signum(Math.random() - 0.5), Math.random() * 50.0 * Math.signum(Math.random() - 0.5), 0.0, 90.0}, 2.5, 10.0, Color.blue);
+                    addBall(new double[]{Math.random() * 500.0, Math.random() * 500.0, Math.random() * 50.0 * Math.signum(Math.random() - 0.5), Math.random() * 50.0 * Math.signum(Math.random() - 0.5), 0.0, 90.0, 0.0, 0.0}, 2.5, 10.0, Color.blue);
+                    physicsObjects.get(physicsObjects.size() - 1).lockRotation(true);
                 }
-                //addShapedSoftbody(true, new double[]{100.0, 400.0, 425.0, 75.0}, new double[]{100.0, 150.0, 400.0, 425.0}, new double[]{0.0, -50.0, 0.0, 90.0}, 1000.0, Color.blue, 100.0, 25.0, 1.0, 100.0);
-                //addShapedSoftbody(false, new double[]{200.0, 300.0, 300.0, 200.0}, new double[]{200.0, 200.0, 300.0, 300.0}, new double[]{0.0, 0.0, 0.0, 90.0}, 1000.0, Color.black, 100.0, 10.0, 3.0, 100.0);
-                addBall(new double[]{250.0, 50.0, 0.0, 0.0, 0.0, 90.0}, 25.0, 1000.0, Color.yellow);
+                //addShapedSoftbody(false, new double[]{200.0, 300.0, 300.0, 200.0}, new double[]{200.0, 200.0, 300.0, 300.0}, new double[]{0.0, 0.0, 0.0, 90.0}, 1000.0, Color.black, 100.0, 10.0, 3.0, 300.0);
+                addBall(new double[]{250.0, 50.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 25.0, 1000.0, Color.yellow);
                 synchronizeSettings();
                 System.out.println("Demo 10: shows optimization using Sweep and Prune algorithm.");
                 break;
@@ -318,6 +354,10 @@ public class Simulation {
             }
         }
         return(null);
+    }
+    public void setFrameCountingBuffer(int frameBuffer) {
+        fpsCountingBuffer = frameBuffer;
+        frameTimes = new double[fpsCountingBuffer];
     }
 
     public void addRigidbody(double[] x, double[] y, double[] motion, double mass, Color color) {
@@ -480,7 +520,8 @@ public class Simulation {
         double minDist = 1.0 - allowance_multiplier;
         double maxDist = 1.0 + allowance_multiplier;
         for (int i = 0; i < x.length; i = i + 1) {
-            Point ropePoint = new Point(new double[]{x[i], y[i], movingMotion[0], movingMotion[1], movingMotion[2], movingMotion[3]}, pointRadius, massPerPoint, color, true, ID);
+            Point ropePoint = new Point(new double[]{x[i], y[i], movingMotion[0], movingMotion[1], movingMotion[2], movingMotion[3], 0.0, 0.0}, pointRadius, massPerPoint, color, true, ID);
+            ropePoint.lockRotation(true);
             physicsObjects.add(new PhysicsObject(ropePoint));
             if (i != 0) {
                 ropePoint.attach(Point.get(startIndex + i - 1));
@@ -529,7 +570,7 @@ public class Simulation {
         }
         throw new Exception("GetHitbox(String type, int localID) --> either 'type' does not exist or 'localID' is out of bounds.");
     }
-    public static void createMaterial(String name, double density, double restitution, double dynamic_friction, double static_friction) {
+    public static void createMaterial(String name, double density, double restitution, double dynamic_friction) {
         boolean alreadyCreated = false;
         if (!materials.contains(defaultMaterial)) materials.add(defaultMaterial);
         for (Material material : materials) {
@@ -539,7 +580,7 @@ public class Simulation {
             }
         }
         if (!alreadyCreated) {
-            materials.add(new Material(name, density, restitution, dynamic_friction, static_friction));
+            materials.add(new Material(name, density, restitution, dynamic_friction));
         }
         else System.out.println("A material with that name already exists.");
 

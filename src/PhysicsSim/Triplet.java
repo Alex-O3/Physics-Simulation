@@ -15,6 +15,12 @@ class Triplet {
     private String thirdString;
     private int thirdInt;
     private int third = 0;
+    public Triplet(double[] a, double[] b) {
+        first = 2;
+        firstDoubleArray = a;
+        second = 2;
+        secondDoubleArray = b;
+    }
     public Triplet(boolean a, double[] b, double[] c) {
         first = 1;
         firstBoolean = a;
@@ -60,6 +66,9 @@ class Triplet {
     }
     public double[] getFirstDoubleArray() {
         return(firstDoubleArray);
+    }
+    public Double[] getFirstDoubleArrayReference() {
+        return(new Double[]{firstDoubleArray[0], firstDoubleArray[1]});
     }
     public String getFirstString() {
         return(firstString);
