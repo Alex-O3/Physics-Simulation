@@ -130,7 +130,7 @@ class Softbody {
             }
 
             //create a point at the proposed location as the seed from which the lattice triangular structure of the softbody will be generated
-            Point seedPoint = new Point(new double[]{pointTest[0], pointTest[1], 0.0, 0.0, 0.0, 0.0}, pointRadius, 1.0, color, true, simID);
+            Point seedPoint = new Point(new double[]{pointTest[0], pointTest[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, pointRadius, 1.0, color, true, simID);
             Simulation.get(simID).physicsObjects.add(new PhysicsObject(seedPoint));
             addMember(seedPoint, onBoundary);
 
@@ -150,7 +150,7 @@ class Softbody {
                     double x = (dx / iterations) * i + borderX[j];
                     double y = (dy / iterations) * i + borderY[j];
                     Color a = color;
-                    Point generatedPoint = new Point(new double[]{x, y, 0.0, 0.0, 0.0, 0.0}, pointRadius, 1.0, a, true, simID);
+                    Point generatedPoint = new Point(new double[]{x, y, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, pointRadius, 1.0, a, true, simID);
                     Simulation.get(simID).physicsObjects.add(new PhysicsObject(generatedPoint));
                     addMember(generatedPoint, true);
                     if (lastIndex != -1) Point.get(lastIndex).attach(generatedPoint);
@@ -190,18 +190,19 @@ class Softbody {
             //Assign motion and mass
             members.get(i).setMass(massPer);
             members.get(i).setMovingMotion(movingMotion);
+            members.get(i).lockRotation(true);
             members.get(i).HOOKE_SPRING_CONSTANT = HOOKE_CONSTANT;
             members.get(i).SPRING_DAMPING_COEFFICIENT = SPRING_DAMPING;
             members.get(i).SPRING_MAX_DIST_MULTIPLIER = max_dist_multiplier;
             members.get(i).SPRING_MIN_DIST_MULTIPLIER = min_dist_multiplier;
 
             //connect to other nearby points
-            if (Point.get(i).isAttached()) for (int j = 0; j < members.size(); j = j + 1) {
+            if (members.get(i).isAttached()) for (int j = 0; j < members.size(); j = j + 1) {
                 if (i != j && members.get(j).isAttached()) {
                     double distance = (members.get(i).getX() - members.get(j).getX()) * (members.get(i).getX() - members.get(j).getX());
                     distance = distance + (members.get(i).getY() - members.get(j).getY()) * (members.get(i).getY() - members.get(j).getY());
                     distance = Math.sqrt(distance);
-                    if (distance < checkRadius) {
+                    if (distance <= checkRadius) {
                         members.get(i).attach(members.get(j));
                     }
                 }
@@ -214,6 +215,8 @@ class Softbody {
         }
 
         calculateProperties();
+        Simulation.get(simID).getSAPCell(0, 0).addBox(ID * -2 - 1);
+        Simulation.get(simID).BVHtrees.get(0).addBox(ID * -2 - 1);
     }
     public static void step(int simID) {
         for (int i = 0; i < num; i = i + 1) {
@@ -307,16 +310,20 @@ class Softbody {
     }
     private void calculateProperties() {
         cM = calculateCenterOfMass();
+        minX = Double.NaN;
+        maxX = Double.NaN;
+        minY = Double.NaN;
+        maxY = Double.NaN;
         for (Point point : members) {
             double dx = point.getX() - cM[0];
             double dy = point.getY() - cM[1];
-            double squaredDistance = point.getX() * point.getX() + point.getY() * point.getY();
+            double squaredDistance = dx * dx + dy * dy;
             if (squaredDistance > largestSquaredDistance) largestSquaredDistance = squaredDistance;
             double radius = point.getSolidRadius();
-            if (point.getX() - radius < minX) minX = point.getX() - radius;
-            if (point.getX() + radius > maxX) maxX = point.getX() + radius;
-            if (point.getY() - radius < minY) minY = point.getY() - radius;
-            if (point.getY() + radius > maxY) maxY = point.getY() + radius;
+            if (Double.isNaN(minX) || point.getX() - radius < minX) minX = point.getX() - radius;
+            if (Double.isNaN(maxX) || point.getX() + radius > maxX) maxX = point.getX() + radius;
+            if (Double.isNaN(minY) || point.getY() - radius < minY) minY = point.getY() - radius;
+            if (Double.isNaN(maxY) || point.getY() + radius > maxY) maxY = point.getY() + radius;
         }
     }
     //boundary members don't have to be sorted in winding order, but the neighboring indices to a boundary members must be valid edges
@@ -360,14 +367,14 @@ class Softbody {
             int minIndex1 = -1;
             int minIndex2 = -1;
             for (int j = 0; j < Point.get(includedList.get(i)).getAttachmentNum(); j = j + 1) {
-                Point point = Point.get(includedList.get(i)).getAttachment(j);
-                if (boundaryIndicesCovered.contains(Point.get(includedList.get(i)).getAttachments().get(j)) || point.getBoundaryAttachmentNum() != 2) continue;
+                Point point = Point.get(includedList.get(i)).getPointAttachment(j);
+                if (boundaryIndicesCovered.contains(-Point.get(includedList.get(i)).getAttachments().get(j) / 2 - 1) || point.getBoundaryAttachmentNum() != 2) continue;
                 minIndex1 = point.ID;
                 break;
             }
             for (int j = 0; j < Point.get(includedList.get(i)).getAttachmentNum(); j = j + 1) {
-                Point point = Point.get(includedList.get(i)).getAttachment(j);
-                if (minIndex1 == point.ID || boundaryIndicesCovered.contains(Point.get(includedList.get(i)).getAttachments().get(j)) || point.getBoundaryAttachmentNum() != 2) continue;
+                Point point = Point.get(includedList.get(i)).getPointAttachment(j);
+                if (minIndex1 == point.ID || boundaryIndicesCovered.contains(-Point.get(includedList.get(i)).getAttachments().get(j) / 2 - 1) || point.getBoundaryAttachmentNum() != 2) continue;
                 minIndex2 = point.ID;
                 break;
             }
@@ -461,6 +468,8 @@ class Softbody {
         int closestEdgeIndex = -1;
         boolean invertNormals = findSignedArea() < 0.0;
         if (radius <= 0.0) intersecting = pointInside(point);
+        boolean insideCheck = false;
+        if (radius > 0.0) insideCheck = pointInside(point);
         if (radius > 0.0 || intersecting) for (int i = 0; i < size; i = i + 1) {
             double x1 = Point.get(boundaryMembers.get(i)).getX();
             double x2 = Point.get(boundaryMembers.get((i + 1) % size)).getX();
@@ -476,14 +485,9 @@ class Softbody {
                 nY = -nY;
             }
 
-            if (radius > 0.0) {
-                boolean rimIntersecting = pointInside(new double[]{point[0] - nX * radius, point[1] - nY * radius});
-                if (!intersecting) intersecting = rimIntersecting;
-                if (!rimIntersecting) continue;
-            }
-
-            double distance = (point[0] - x1) * nX + (point[1] - y1) * nY - radius;
-            if ((Double.isNaN(closestEdgeDistance) || distance > closestEdgeDistance) && distance < 0.0) {
+            double distance = (point[0] - x1) * nX + (point[1] - y1) * nY;
+            distance -= radius;
+            if ((Double.isNaN(closestEdgeDistance) || distance > closestEdgeDistance) && distance < 0.0 && (radius <= 0.0 || distance >= -radius || insideCheck)) {
                 double orthoDotPoint = point[0] * -nY + point[1] * nX;
                 double orthoDotMin = x1 * -nY + y1 * nX;
                 double orthoDotMax = x2 * -nY + y2 * nX;
@@ -497,6 +501,7 @@ class Softbody {
                     closestEdgeNX = nX;
                     closestEdgeNY = nY;
                     closestEdgeIndex = i;
+                    intersecting = true;
                 }
             }
         }

@@ -122,8 +122,9 @@ public class PhysicsObject {
     public double[] getAngularMovement() throws Exception {
         switch(whatAmI.getFirstString()) {
             case("Rigidbody"): return(new double[]{rigidbody.getAngularV(), rigidbody.getAngularA()});
+            case("Point"): return(new double[]{point.getAngularV(), point.getAngularA()});
             default:
-                throw new Exception("Physics object (softbody or point likely) does not store angular movement.");
+                throw new Exception("Physics object (softbody likely) does not store angular movement.");
         }
     }
     public void setAcceleration(double[] acceleration) throws Exception {
@@ -179,6 +180,11 @@ public class PhysicsObject {
              case("Rigidbody"): {
                  rigidbody.angularV = angularMovement[0];
                  rigidbody.angularA = angularMovement[1];
+                 break;
+             }
+             case("Point"): {
+                 point.angularV = angularMovement[0];
+                 point.angularA = angularMovement[1];
                  break;
              }
              default:
@@ -270,12 +276,8 @@ public class PhysicsObject {
                          rigidbody.COEFFICIENT_OF_RESTITUTION = value;
                          break;
                      }
-                     case("DYNAMIC_FRICTION"): {
-                         rigidbody.COEFFICIENT_OF_FRICTION_DYNAMIC = value;
-                         break;
-                     }
-                     case("STATIC_FRICTION"): {
-                         rigidbody.COEFFICIENT_OF_FRICTION_STATIC = value;
+                     case("FRICTION"): {
+                         rigidbody.COEFFICIENT_OF_FRICTION = value;
                          break;
                      }
                  }
@@ -287,12 +289,8 @@ public class PhysicsObject {
                          point.COEFFICIENT_OF_RESTITUTION = value;
                          break;
                      }
-                     case("DYNAMIC_FRICTION"): {
-                         point.COEFFICIENT_OF_FRICTION_DYNAMIC = value;
-                         break;
-                     }
-                     case("STATIC_FRICTION"): {
-                         point.COEFFICIENT_OF_FRICTION_STATIC = value;
+                     case("FRICTION"): {
+                         point.COEFFICIENT_OF_FRICTION = value;
                          break;
                      }
                  }
@@ -306,15 +304,9 @@ public class PhysicsObject {
                          }
                          break;
                      }
-                     case("DYNAMIC_FRICTION"): {
+                     case("FRICTION"): {
                          for (int i = 0; i < softbody.size(); i = i + 1) {
-                             softbody.getMember(i).COEFFICIENT_OF_FRICTION_DYNAMIC = value;
-                         }
-                         break;
-                     }
-                     case("STATIC_FRICTION"): {
-                         for (int i = 0; i < softbody.size(); i = i + 1) {
-                             softbody.getMember(i).COEFFICIENT_OF_FRICTION_STATIC = value;
+                             softbody.getMember(i).COEFFICIENT_OF_FRICTION = value;
                          }
                          break;
                      }
@@ -322,7 +314,7 @@ public class PhysicsObject {
                  break;
              }
              default:
-                 throw new Exception("The 'coefficientType' must be either 'RESTITUTION', 'DYANMIC_FRICTION', or 'STATIC_FRICTION'.");
+                 throw new Exception("The 'coefficientType' must be either 'RESTITUTION' or 'FRICTION'.");
          }
     }
     public void setMass(double mass) {
@@ -383,8 +375,7 @@ public class PhysicsObject {
                          break;
                      }
                      setSurfaceCoefficient("RESTITUTION", material.restitution);
-                     setSurfaceCoefficient("DYNAMIC_FRICTION", material.dynamic_friction);
-                     setSurfaceCoefficient("STATIC_FRICTION", material.static_friction);
+                     setSurfaceCoefficient("FRICTION", material.dynamic_friction);
                      if (!hasZeroMass()) setDensity(material.density);
                      else System.out.println("Cannot change the density of a zero-mass object.");
                  }
@@ -437,6 +428,25 @@ public class PhysicsObject {
 
         }
     }
+    public void lockRotation(boolean a) {
+        switch(whatAmI.getFirstString()) {
+            case("Rigidbody"): {
+                rigidbody.lockRotation(a);
+                break;
+            }
+            case("Point"): {
+                point.lockRotation(a);
+                break;
+            }
+            case("Softbody"): {
+                for (int i = 0; i < softbody.size(); i = i + 1) {
+                    softbody.getMember(i).lockRotation(a);
+                }
+                break;
+            }
+
+        }
+    }
     public void addController(char key, double initialVelocity, double releaseVelocity, double sustainedForce, double maxSpeed, double[] direction, char excludeIfKey) {
          switch(whatAmI.getFirstString()) {
              case("Rigidbody"): {
@@ -467,8 +477,8 @@ public class PhysicsObject {
         addController('w', 100.0, 0.0, 0.0, 0.0, new double[]{0.0, -1.0}, '\u0000');
         addController('s', 0.0, 0.0, 180.0, 0.0, new double[]{0.0, 1.0}, '\u0000');
         makeAdoptOtherSurfaceOnly(true);
-        if (whatAmI.getFirstString().equals("Rigidbody")) rigidbody.lockRotation(true);
-        Simulation.createMaterial("Player", 100.0, 0.1, 0.5, 0.6);
+        lockRotation(true);
+        Simulation.createMaterial("Player", 100.0, 0.1, 0.5);
         setMaterial("Player");
      }
     public void setControllerParameters(double stepsUntilOffGround, double velocityReframingRate) {

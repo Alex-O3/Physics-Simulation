@@ -126,7 +126,7 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
             //draw center of mass unless that drawing would be larger than the shape
             if (Rigidbody.get(i).getLargestDistance() / resolutionScaling > 15.0 && Rigidbody.get(i).isMovable()) {
                 g.setColor(Color.red);
-                g.fillOval(convertX(Rigidbody.get(i).getPosX() - 5.0), convertY(Rigidbody.get(i).getPosY() - 5), (int)(10.0 / resolutionScaling), (int)(10.0 / resolutionScaling));
+                g.fillOval(convertX(Rigidbody.get(i).getPosX()) - 5, convertY(Rigidbody.get(i).getPosY()) - 5, 10, 10);
             }
             //draw debug velocity and acceleration vectors
             if (debugVector == 1) {
@@ -160,10 +160,13 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
             g.setColor(Point.get(i).getColor());
             double radius = Point.get(i).getRadius();
             g.fillOval(convertX(Point.get(i).getX() - radius), convertY(Point.get(i).getY() - radius), (int)(radius * (2.0 / resolutionScaling)), (int)(radius * (2.0 / resolutionScaling)));
+            //g.drawLine(convertX(Point.get(i).getX()), convertY(Point.get(i).getY()), convertX(Point.get(i).getX() + Point.get(i).testRotationWithDrawingPoint[0]), convertY(Point.get(i).getY() + Point.get(i).testRotationWithDrawingPoint[1]));
+
+
             //draw the center of mass unless the Point is too small (in which case the center of mass circle would be larger than the Point)
             if (radius / resolutionScaling > 15.0 && Point.get(i).isMovable()) {
                 g.setColor(Color.red);
-                g.fillOval(convertX(Point.get(i).getX() - 5), convertY(Point.get(i).getY() - 5), (int)(10.0 / resolutionScaling), (int)(10.0 / resolutionScaling));
+                g.fillOval(convertX(Point.get(i).getX()) - 5, convertY(Point.get(i).getY()) - 5, 10, 10);
             }
             //draw debug velocity and acceleration vectors
             if (debugVector == 1) {
@@ -177,8 +180,8 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
             //lines to show spring attachments
             if (Point.get(i).isAttached()) {
                 for (int j = 0; j < Point.get(i).getAttachmentNum(); j = j + 1) {
-                    if (Point.get(i).ID < Point.get(i).getAttachment(j).ID) {
-                        g.drawLine(convertX(Point.get(i).getX()), convertY(Point.get(i).getY()), convertX(Point.get(i).getAttachment(j).getX()), convertY(Point.get(i).getAttachment(j).getY()));
+                    if (Point.get(i).ID < Point.get(i).getPointAttachment(j).ID) {
+                        g.drawLine(convertX(Point.get(i).getX()), convertY(Point.get(i).getY()), convertX(Point.get(i).getPointAttachment(j).getX()), convertY(Point.get(i).getPointAttachment(j).getY()));
                     }
                 }
             }
