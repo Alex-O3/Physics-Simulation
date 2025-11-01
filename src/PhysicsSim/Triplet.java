@@ -4,60 +4,70 @@ class Triplet {
     private double[] firstDoubleArray;
     private String firstString;
     private int firstInt;
-    private int first = 0;
+    private int[] firstIntArray;
+    private RigidbodyGeometries firstRigidbodyGeometries;
+    private double firstDouble;
     private boolean secondBoolean;
     private double[] secondDoubleArray;
     private String secondString;
     private int secondInt;
-    private int second = 0;
+    private int[] secondIntArray;
+    private RigidbodyGeometries secondRigidbodyGeometries;
+    private double secondDouble;
     private boolean thirdBoolean;
     private double[] thirdDoubleArray;
     private String thirdString;
     private int thirdInt;
-    private int third = 0;
+    private int[] thirdIntArray;
+    private RigidbodyGeometries thirdRigidbodyGeometries;
+    private double thirdDouble;
+    public Triplet(RigidbodyGeometries a, int[] b, int[] c) {
+        firstRigidbodyGeometries = a;
+        secondIntArray = b;
+        thirdIntArray = c;
+    }
+    public Triplet(RigidbodyGeometries a, double[] b, double[] c) {
+        firstRigidbodyGeometries = a;
+        secondDoubleArray = b;
+        thirdDoubleArray = c;
+    }
+    public Triplet(RigidbodyGeometries a, int[] b, double c) {
+        firstRigidbodyGeometries = a;
+        secondIntArray = b;
+        thirdDouble = c;
+    }
+    public Triplet(RigidbodyGeometries a, double[] b, double c) {
+        firstRigidbodyGeometries = a;
+        secondDoubleArray = b;
+        thirdDouble = c;
+    }
     public Triplet(double[] a, double[] b) {
-        first = 2;
         firstDoubleArray = a;
-        second = 2;
         secondDoubleArray = b;
     }
     public Triplet(boolean a, double[] b, double[] c) {
-        first = 1;
         firstBoolean = a;
-        second = 2;
         secondDoubleArray = b;
-        third = 2;
         thirdDoubleArray = c;
     }
     public Triplet(boolean a, double[] b) {
-        first = 1;
         firstBoolean = a;
-        second = 2;
         secondDoubleArray = b;
     }
     public Triplet(boolean a, double[] b, boolean c) {
-        first = 1;
         firstBoolean = a;
-        second = 2;
         secondDoubleArray = b;
-        third = 1;
         thirdBoolean = c;
     }
     public Triplet(String a, int b, int c) {
-        first = a.length();
         firstString = a;
-        second = 1;
         secondInt = b;
-        third = 1;
         thirdInt = c;
     }
 
     public Triplet(boolean a, double[] b, int c) {
-        first = 1;
         firstBoolean = a;
-        second = 2;
         secondDoubleArray = b;
-        third = 1;
         thirdInt = c;
     }
 
@@ -76,6 +86,7 @@ class Triplet {
     public int getFirstInt() {
         return(firstInt);
     }
+    public RigidbodyGeometries getFirstRigidbodyGeometries() {return(firstRigidbodyGeometries);}
     public boolean getSecondBoolean() {
         return(secondBoolean);
     }
@@ -91,6 +102,8 @@ class Triplet {
     public int getSecondInt() {
         return(secondInt);
     }
+    public int[] getSecondIntArray() {return(secondIntArray);}
+    public double getSecondDouble() {return(secondDouble);}
     public boolean getThirdBoolean() {
         return(thirdBoolean);
     }
@@ -103,4 +116,6 @@ class Triplet {
     public int getThirdInt() {
         return(thirdInt);
     }
+    public int[] getThirdIntArray() {return(thirdIntArray);}
+    public double getThirdDouble() {return(thirdDouble);}
 }

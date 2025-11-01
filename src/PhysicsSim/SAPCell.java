@@ -2,7 +2,7 @@ package PhysicsSim;
 
 import java.util.ArrayList;
 
- class SAPCell {
+ public class SAPCell {
     public final int simID;
     public final int x;
     public final int y;
@@ -59,22 +59,15 @@ import java.util.ArrayList;
         activelyChecked.clear();
     }
 
-    private boolean checkIfSameSoftbody(int boxIndex1, int boxIndex2) {
-        if (aabbs.get(boxIndex1).parentID <= -1 && Rigidbody.mod(aabbs.get(boxIndex1).parentID, 2) == 1) {
-            int softbodyID = -aabbs.get(boxIndex1).parentID / 2;
-            if (aabbs.get(boxIndex2).parentID <= -2 && Rigidbody.mod(aabbs.get(boxIndex2).parentID, 2) == 0) {
-                if (Point.get(-aabbs.get(boxIndex2).parentID / 2 - 1).parentSoftbody == softbodyID) return(true);
-            }
-        }
-        else if (aabbs.get(boxIndex2).parentID <= -1 && Rigidbody.mod(aabbs.get(boxIndex2).parentID, 2) == 1) {
-            int softbodyID = -aabbs.get(boxIndex2).parentID / 2;
-            if (aabbs.get(boxIndex1).parentID <= -2 && Rigidbody.mod(aabbs.get(boxIndex1).parentID, 2) == 0) {
-                if (Point.get(-aabbs.get(boxIndex1).parentID / 2 - 1).parentSoftbody == softbodyID) return(true);
-            }
-        }
+     private boolean checkIfSameSoftbody(int boxIndex1, int boxIndex2) {
+        int parentID1 = aabbs.get(boxIndex1).parentID;
+        int parentID2 = aabbs.get(boxIndex2).parentID;
+        if (parentID1 <= -2 && parentID2 <= -2) return(parentID1 == parentID2);
+        else if (parentID1 <= -2) return(-parentID1 - 2 == Rigidbody.get(parentID2).parentSoftbody);
+        else if (parentID2 <= -2) return(-parentID2 - 2 == Rigidbody.get(parentID1).parentSoftbody);
         return(false);
-    }
-    private void insertionSort(ArrayList<Endpoint> endpointsList) {
+     }
+    private static void insertionSort(ArrayList<Endpoint> endpointsList) {
         for (int i = 1; i < endpointsList.size(); i = i + 1) {
             if (endpointsList.get(i).value < endpointsList.get(i - 1).value || (endpointsList.get(i).value == endpointsList.get(i - 1).value && endpointsList.get(i).isMin)) { //here is the compare function
                 int insertionIndex = 0;
@@ -92,4 +85,28 @@ import java.util.ArrayList;
             }
         }
     }
+
+     private static void quickSort(ArrayList<Endpoint> endpointsList) {
+         qsort(endpointsList, 0, endpointsList.size() - 1);
+     }
+
+     private static void qsort(ArrayList<Endpoint> endpointsList, int start, int end) {
+         if (end <= start) return;
+         int pivot = end;
+         int leftRightmostIndex = start;
+         Endpoint temp = null;
+         for (int j = start; j < end; j = j + 1) {
+             if (endpointsList.get(j).value < endpointsList.get(pivot).value) { //here is where the compare function is done
+                 temp = endpointsList.get(j);
+                 endpointsList.set(j, endpointsList.get(leftRightmostIndex));
+                 endpointsList.set(leftRightmostIndex, temp);
+                 leftRightmostIndex += 1;
+             }
+         }
+         temp = endpointsList.get(leftRightmostIndex);
+         endpointsList.set(leftRightmostIndex, endpointsList.get(pivot));
+         endpointsList.set(pivot, temp);
+         qsort(endpointsList, start, leftRightmostIndex - 1);
+         qsort(endpointsList, leftRightmostIndex + 1, end);
+     }
 }

@@ -1,24 +1,26 @@
 package PhysicsSim;
-class Triangle { //this class is closely tied to the Rigidbody class
+class Triangle { //this class is closely tied to the Polygon class
     private double MTV_EPSILON = 500.0;
 
     private double[] x = new double[3];
     private double[] y = new double[3];
     private double[] centerOfMass = new double[2];
     private double area;
-    private double mass;
-    private double inertia;
+    //massless inertia assume mass to be =1 for calculations, such that its inertia = parentRigidbodyMass * masslessInertia
+    private double masslessInertia;
 
     private int[] indices = new int[3];
     public boolean[] enabled = new boolean[]{true, true, true};
     public boolean partOfFace = false;
     private double[] normalX = new double[3];
     private double[] normalY = new double[3];
+    private Polygon parentPolygon;
     private int parentRigidbody;
     boolean exists;
 
-    public Triangle(int backwardIndex, int parentIndex, int forwardIndex, int parentRigidbody, double[] pos) {
-        this.parentRigidbody = parentRigidbody;
+    public Triangle(int backwardIndex, int parentIndex, int forwardIndex, Polygon parentPolygon, double[] pos) {
+        this.parentPolygon = parentPolygon;
+        parentRigidbody = parentPolygon.getParentRigidbodyID();
         indices[0] = backwardIndex;
         indices[1] = parentIndex;
         indices[2] = forwardIndex;
@@ -29,13 +31,13 @@ class Triangle { //this class is closely tied to the Rigidbody class
     public Triangle() {
         exists = false;
     }
-    public void calculateProperties() {
-        x[0] = Rigidbody.get(parentRigidbody).getXPoints(indices[0]);
-        y[0] = Rigidbody.get(parentRigidbody).getYPoints(indices[0]);
-        x[1] = Rigidbody.get(parentRigidbody).getXPoints(indices[1]);
-        y[1] = Rigidbody.get(parentRigidbody).getYPoints(indices[1]);
-        x[2] = Rigidbody.get(parentRigidbody).getXPoints(indices[2]);
-        y[2] = Rigidbody.get(parentRigidbody).getYPoints(indices[2]);
+    public void calculateProperties(double parentArea) {
+        x[0] = parentPolygon.getXPoints(indices[0]);
+        y[0] = parentPolygon.getYPoints(indices[0]);
+        x[1] = parentPolygon.getXPoints(indices[1]);
+        y[1] = parentPolygon.getYPoints(indices[1]);
+        x[2] = parentPolygon.getXPoints(indices[2]);
+        y[2] = parentPolygon.getYPoints(indices[2]);
         double yMin = y[0];
         if (y[1] < yMin) yMin = y[1];
         if (y[2] < yMin) yMin = y[2];
@@ -59,16 +61,16 @@ class Triangle { //this class is closely tied to the Rigidbody class
             normalY[2] = -normalY[2];
         }
         area = Math.abs(area);
-        mass = (Rigidbody.get(parentRigidbody).getMass() / Rigidbody.get(parentRigidbody).getArea()) * area;
+        double areaProportion = (area / parentArea);
         //side lengths
         double a = Math.sqrt((x[1] - x[0]) * (x[1] - x[0]) + (y[1] - y[0]) * (y[1] - y[0]));
         double b = Math.sqrt((x[2] - x[1]) * (x[2] - x[1]) + (y[2] - y[1]) * (y[2] - y[1]));
         double c = Math.sqrt((x[0] - x[2]) * (x[0] - x[2]) + (y[0] - y[2]) * (y[0] - y[2]));
         double d = (a * a + b * b - c * c) / (2.0 * a); //length until height along the side
         //calculate inertia
-        inertia = 2.0 * a * d * (a - d) + d * b * b + (a - d) * c * c; //formula derived from calculus to find the moment of y = (b / a) * x, shifted to find the right triangle's moment by parallel axis theorem
-        inertia = inertia / (18.0 * a); //then, parallel axis theorem is used to get the moment of the whole triangle out of the two right triangles that compose it
-        inertia = mass * inertia;
+        masslessInertia = 2.0 * a * d * (a - d) + d * b * b + (a - d) * c * c; //formula derived from calculus to find the moment of y = (b / a) * x, shifted to find the right triangle's moment by parallel axis theorem
+        masslessInertia = masslessInertia / (18.0 * a); //then, parallel axis theorem is used to get the moment of the whole triangle out of the two right triangles that compose it
+        masslessInertia = areaProportion * masslessInertia;
     }
     public void shift(double shiftX, double shiftY) {
         x[0] = x[0] - shiftX;
@@ -99,6 +101,8 @@ class Triangle { //this class is closely tied to the Rigidbody class
         centerOfMass[1] = X * sin + Y * cos;
     }
     public Triplet checkCollisions(Triangle otherTriangle) {
+        Polygon myPolygon = (Polygon) Rigidbody.get(parentRigidbody).geometry;
+        Polygon otherPolygon = (Polygon) Rigidbody.get(otherTriangle.parentRigidbody).geometry;
         boolean intersecting = true;
         //use separating axis theorem
         double[] otherX = otherTriangle.getX();
@@ -163,7 +167,7 @@ class Triangle { //this class is closely tied to the Rigidbody class
                 intersecting = false;
                 break;
             }
-            else if (mod(indices[(i + 1) % 3] - indices[i], Rigidbody.get(parentRigidbody).getNumPoints()) == 1 && enabled[i]) {
+            else if (mod(indices[(i + 1) % 3] - indices[i], myPolygon.getNumPoints()) == 1 && enabled[i]) {
                 if (partOfFace && !(Rigidbody.get(otherTriangle.parentRigidbody).getVX() * normalX[i] + Rigidbody.get(otherTriangle.parentRigidbody).getVY() * normalY[i] < 0.0)){
                     intersecting = false;
                     break;
@@ -247,7 +251,7 @@ class Triangle { //this class is closely tied to the Rigidbody class
                 intersecting = false;
                 break;
             }
-            else if (mod(otherTriangle.indices[(i + 1) % 3] - otherTriangle.indices[i], Rigidbody.get(otherTriangle.getParentID()).getNumPoints()) == 1 && otherTriangle.enabled[i]) {
+            else if (mod(otherTriangle.indices[(i + 1) % 3] - otherTriangle.indices[i], otherPolygon.getNumPoints()) == 1 && otherTriangle.enabled[i]) {
                 if (otherTriangle.partOfFace && !(Rigidbody.get(parentRigidbody).getVX() * otherTriangle.getNormalX()[i] + Rigidbody.get(parentRigidbody).getVY() * otherTriangle.getNormalY()[i] < 0.0)) {
                     intersecting = false;
                     break;
@@ -279,28 +283,30 @@ class Triangle { //this class is closely tied to the Rigidbody class
         //returns boolean intersecting (but false) if the triangles do not intersect
         return(new Triplet(intersecting, MTV, pointOfContact));
     }
-    public Triplet checkCollisions(Point other) {
+    public Triplet checkCollisions(Circle otherCircle) {
+        Polygon myPolygon = (Polygon) Rigidbody.get(parentRigidbody).geometry;
+        Rigidbody other = Rigidbody.get(otherCircle.getParentRigidbodyID());
         boolean intersecting = false;
         double[] MTV = new double[]{Double.NaN, Double.NaN};
         double[] pointOfContact = new double[]{Double.NaN, Double.NaN};
         double[] dotProductResults = new double[6];
         double overlap = Double.NaN;
         if (!partOfFace) for (int i = 0; i < 3; i = i + 1) {
-            if (!(mod(indices[(i + 1) % 3] - indices[i], Rigidbody.get(parentRigidbody).getNumPoints()) == 1)) {
+            if (!(mod(indices[(i + 1) % 3] - indices[i], myPolygon.getNumPoints()) == 1)) {
                 continue;
             }
             double trianglePointX = x[i] + Rigidbody.get(parentRigidbody).getPosX();
             double trianglePointY = y[i] + Rigidbody.get(parentRigidbody).getPosY();
-            double actualDistance = (trianglePointX - other.getX()) * (trianglePointX - other.getX()) + (trianglePointY - other.getY()) * (trianglePointY - other.getY());
+            double actualDistance = (trianglePointX - other.getPosX()) * (trianglePointX - other.getPosX()) + (trianglePointY - other.getPosY()) * (trianglePointY - other.getPosY());
             actualDistance = Math.sqrt(actualDistance);
             //to make up for what I assume to be a precision error, we deduct about 1.5 from the actual distance
             //without doing so, the dot product approach needed before would proc before the distance approach needed here, even in
             //situations where the triangle's points are physically in contact, returning the wrong answer
-            if (actualDistance <= other.getSolidRadius() + 1.0) {
+            if (actualDistance <= otherCircle.getRadius() + 1.0) {
                 intersecting = true;
-                double temp = Math.abs(other.getSolidRadius() - actualDistance);
-                double nX = (trianglePointX - other.getX()) / actualDistance;
-                double nY = (trianglePointY - other.getY()) / actualDistance;
+                double temp = Math.abs(otherCircle.getRadius() - actualDistance);
+                double nX = (trianglePointX - other.getPosX()) / actualDistance;
+                double nY = (trianglePointY - other.getPosY()) / actualDistance;
                 if (Double.isNaN(overlap) || temp < overlap) {
                     overlap = temp;
                     if (other.isMovable()) {
@@ -333,7 +339,7 @@ class Triangle { //this class is closely tied to the Rigidbody class
         if (!intersecting && (enabled[0] || enabled[1] || enabled[2])) {
             for (int i = 0; i < 3; i = i + 1) {
                 double velocityCheck = other.getVX() * normalX[i] + other.getVY() * normalY[i];
-                if (!(mod(indices[(i + 1) % 3] - indices[i], Rigidbody.get(parentRigidbody).getNumPoints()) == 1 && enabled[i])) {
+                if (!(mod(indices[(i + 1) % 3] - indices[i], myPolygon.getNumPoints()) == 1 && enabled[i])) {
                     continue;
                 }
                 if (partOfFace && velocityCheck >= 0.0) {
@@ -343,11 +349,11 @@ class Triangle { //this class is closely tied to the Rigidbody class
                 //in the ortho-normal projection
                 dotProductResults[0] = -normalY[i] * (x[i] + Rigidbody.get(parentRigidbody).getPosX()) + normalX[i] * (y[i] + Rigidbody.get(parentRigidbody).getPosY());
                 dotProductResults[1] = -normalY[i] * (x[(i + 1) % 3] + Rigidbody.get(parentRigidbody).getPosX()) + normalX[i] * (y[(i + 1) % 3] + Rigidbody.get(parentRigidbody).getPosY());
-                dotProductResults[2] = -normalY[i] * other.getX() + normalX[i] * other.getY();
+                dotProductResults[2] = -normalY[i] * other.getPosX() + normalX[i] * other.getPosY();
                 //in the normal projection
                 dotProductResults[3] = normalX[i] * (x[i] + Rigidbody.get(parentRigidbody).getPosX()) + normalY[i] * (y[i] + Rigidbody.get(parentRigidbody).getPosY());
                 dotProductResults[4] = normalX[i] * (x[(i + 1) % 3] + Rigidbody.get(parentRigidbody).getPosX()) + normalY[i] * (y[(i + 1) % 3] + Rigidbody.get(parentRigidbody).getPosY());
-                dotProductResults[5] = normalX[i] * other.getX() + normalY[i] * other.getY();
+                dotProductResults[5] = normalX[i] * other.getPosX() + normalY[i] * other.getPosY();
                 //ball is intersecting if both the ortho-normal and normal projections overlap between the ball and the edges points.
                 double orthoDotMin = dotProductResults[0];
                 double orthoDotMax = dotProductResults[1];
@@ -362,10 +368,10 @@ class Triangle { //this class is closely tied to the Rigidbody class
                     dotMin = dotProductResults[4];
                 }
                 if (dotProductResults[2] < orthoDotMax && dotProductResults[2] > orthoDotMin) {
-                    if (partOfFace && !(dotProductResults[5] - other.getSolidRadius() > dotMin - 1.0)) break;
-                    if (dotProductResults[5] - other.getSolidRadius() < dotMax && dotProductResults[5] + other.getSolidRadius() > dotMax) {
+                    if (partOfFace && !(dotProductResults[5] - otherCircle.getRadius() > dotMin - 1.0)) break;
+                    if (dotProductResults[5] - otherCircle.getRadius() < dotMax && dotProductResults[5] + otherCircle.getRadius() > dotMax) {
                         intersecting = true;
-                        double temp = Math.abs(dotMax - dotProductResults[5] + other.getSolidRadius());
+                        double temp = Math.abs(dotMax - dotProductResults[5] + otherCircle.getRadius());
                         if (Double.isNaN(overlap) || temp < overlap) {
                             overlap = temp;
                             if (other.isMovable()) {
@@ -374,23 +380,23 @@ class Triangle { //this class is closely tied to the Rigidbody class
                                     double temp2 = overlap * (getParentMass() / (other.getMass() + getParentMass())) + MTV_EPSILON;
                                     MTV[0] = normalX[i] * temp;
                                     MTV[1] = normalY[i] * temp;
-                                    pointOfContact[0] = other.getX() - other.getSolidRadius() * normalX[i] + normalX[i] * temp2;
-                                    pointOfContact[1] = other.getY() - other.getSolidRadius() * normalY[i] + normalY[i] * temp2;
+                                    pointOfContact[0] = other.getPosX() - otherCircle.getRadius() * normalX[i] + normalX[i] * temp2;
+                                    pointOfContact[1] = other.getPosY() - otherCircle.getRadius() * normalY[i] + normalY[i] * temp2;
                                 }
                                 else {
                                     double temp2 = overlap + MTV_EPSILON;
                                     MTV[0] = normalX[i] * temp2;
                                     MTV[1] = normalY[i] * temp2;
-                                    pointOfContact[0] = other.getX() - other.getSolidRadius() * normalX[i] + normalX[i] * temp2;
-                                    pointOfContact[1] = other.getY() - other.getSolidRadius() * normalY[i] + normalY[i] * temp2;
+                                    pointOfContact[0] = other.getPosX() - otherCircle.getRadius() * normalX[i] + normalX[i] * temp2;
+                                    pointOfContact[1] = other.getPosY() - otherCircle.getRadius() * normalY[i] + normalY[i] * temp2;
                                 }
                             }
                             else {
                                 temp = -overlap - MTV_EPSILON;
                                 MTV[0] = normalX[i] * temp;
                                 MTV[1] = normalY[i] * temp;
-                                pointOfContact[0] = other.getX() - other.getSolidRadius() * normalX[i] + MTV[0];
-                                pointOfContact[1] = other.getY() - other.getSolidRadius() * normalY[i] + MTV[1];
+                                pointOfContact[0] = other.getPosX() - otherCircle.getRadius() * normalX[i] + MTV[0];
+                                pointOfContact[1] = other.getPosY() - otherCircle.getRadius() * normalY[i] + MTV[1];
                             }
                         }
                     }
@@ -410,17 +416,14 @@ class Triangle { //this class is closely tied to the Rigidbody class
     public double getArea() {
         return(area);
     }
-    public double getMass() {
-        return(mass);
-    }
     public double getParentMass() {
         return(Rigidbody.get(parentRigidbody).getMass());
     }
     public int getParentID() {
         return(parentRigidbody);
     }
-    public double getInertia() {
-        return(inertia);
+    public double getMasslessInertia() {
+        return(masslessInertia);
     }
     public double getCenterX() {
         return(centerOfMass[0]);

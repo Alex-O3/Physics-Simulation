@@ -1,7 +1,7 @@
 package PhysicsSim;
 import java.util.ArrayList;
 
- class BVHNode {
+ public class BVHNode {
     public final BVHTreeRoot root;
     public final BVHNode leftNode;
     public final BVHNode rightNode;
@@ -57,18 +57,11 @@ import java.util.ArrayList;
     }
     private boolean checkIfSameSoftbody(int boxIndex1, int boxIndex2) {
         ArrayList<AABBox> aabbs = root.aabbs;
-        if (aabbs.get(boxIndex1).parentID <= -1 && Rigidbody.mod(aabbs.get(boxIndex1).parentID, 2) == 1) {
-            int softbodyID = -aabbs.get(boxIndex1).parentID / 2;
-            if (aabbs.get(boxIndex2).parentID <= -2 && Rigidbody.mod(aabbs.get(boxIndex2).parentID, 2) == 0) {
-                if (Point.get(-aabbs.get(boxIndex2).parentID / 2 - 1).parentSoftbody == softbodyID) return(true);
-            }
-        }
-        else if (aabbs.get(boxIndex2).parentID <= -1 && Rigidbody.mod(aabbs.get(boxIndex2).parentID, 2) == 1) {
-            int softbodyID = -aabbs.get(boxIndex2).parentID / 2;
-            if (aabbs.get(boxIndex1).parentID <= -2 && Rigidbody.mod(aabbs.get(boxIndex1).parentID, 2) == 0) {
-                if (Point.get(-aabbs.get(boxIndex1).parentID / 2 - 1).parentSoftbody == softbodyID) return(true);
-            }
-        }
+        int parentID1 = aabbs.get(boxIndex1).parentID;
+        int parentID2 = aabbs.get(boxIndex2).parentID;
+        if (parentID1 <= -2 && parentID2 <= -2) return(parentID1 == parentID2);
+        else if (parentID1 <= -2) return(-parentID1 - 2 == Rigidbody.get(parentID2).parentSoftbody);
+        else if (parentID2 <= -2) return(-parentID2 - 2 == Rigidbody.get(parentID1).parentSoftbody);
         return(false);
     }
     public static int getMostSignificantBitIndexFromLeft(long a, int startIndexFromLeft) {

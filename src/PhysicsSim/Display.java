@@ -8,6 +8,8 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
     public final int simID;
     public int debugVector = 0;
     public double debugVectorScaling = 0.001;
+    public boolean debugBounds = false;
+    public boolean debugRadius = false;
     public final JLabel fps = new JLabel();
 
     public boolean mouse = false;
@@ -72,19 +74,16 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
         timeElapsed = System.currentTimeMillis() - lastTime;
         //System.out.println(mouseX + ", " + mouseY);
         boolean isInside = false;
-        boolean results1;
-        boolean results2;
+        boolean results = false;
         if (timeElapsed / 1000.0 > dt) {
-            results1 = Rigidbody.moveByMouse(mouseX, mouseY, true, mousePressed, dt, simID);
-            results2 = Point.moveByMouse(mouseX, mouseY, true, mousePressed, dt, simID);
+            results = Rigidbody.moveByMouse(mouseX, mouseY, true, mousePressed, dt, simID);
             vmXDisplay = 0.0;
             vmYDisplay = 0.0;
         }
         else {
-            results1 = Rigidbody.moveByMouse(mouseX, mouseY, false, mousePressed, dt, simID);
-            results2 = Point.moveByMouse(mouseX, mouseY, false, mousePressed, dt, simID);
+            results = Rigidbody.moveByMouse(mouseX, mouseY, false, mousePressed, dt, simID);
         }
-        isInside = (results1 || results2);
+        isInside = results;
         if (mousePressed && !isInside && timeElapsed > 0.0) {
             pixelShiftX = pixelShiftX + vmXDisplay * (dt / stepsPerFrame);
             pixelShiftY = pixelShiftY + vmYDisplay * (dt / stepsPerFrame);
@@ -103,106 +102,115 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
 
     @Override
     public void paintComponent(Graphics g) {
-        if (Simulation.get(simID).physicsObjects.isEmpty()) return;
-        super.paintComponent(g);
-        for (int i = 0; i < Rigidbody.num; i = i + 1) {
-            try {
-                if (Simulation.get(simID).getObject("Rigidbody", i).material.name.contains("Player")) {
+        try {
+            if (Simulation.get(simID).physicsObjects.isEmpty()) return;
+            super.paintComponent(g);
+            for (int i = 0; i < Rigidbody.num; i++) {
+                Rigidbody rigidbody = Rigidbody.get(i);
+                if (rigidbody == null || !rigidbody.draw) continue;
+                Material material = Simulation.get(simID).getObject("Rigidbody", i).material;
+                if (material != null && material.name.contains("Player")) {
                     playerLock = true;
-                    resolutionCenterX = Rigidbody.get(i).getPosX();
-                    resolutionCenterY = Rigidbody.get(i).getPosY();
-                    pixelShiftX = 0.5 * getWidth() - ((Rigidbody.get(i).getPosX() - resolutionCenterX) / resolutionScaling) - resolutionCenterX;
-                    pixelShiftY = 0.5 * getHeight() - ((Rigidbody.get(i).getPosY() - resolutionCenterY) / resolutionScaling) - resolutionCenterY;
+                    resolutionCenterX = rigidbody.getPosX();
+                    resolutionCenterY = rigidbody.getPosY();
+                    pixelShiftX = 0.5 * getWidth() - ((rigidbody.getPosX() - resolutionCenterX) / resolutionScaling) - resolutionCenterX;
+                    pixelShiftY = 0.5 * getHeight() - ((rigidbody.getPosY() - resolutionCenterY) / resolutionScaling) - resolutionCenterY;
                 }
-            } catch (Exception e) {
-
-            }
-            if (Rigidbody.get(i).simID != simID || !Rigidbody.get(i).draw) continue;
-            g.setColor(Rigidbody.get(i).getColor());
-            int[] x = Rigidbody.get(i).getDrawX(shiftX, resolutionScaling, resolutionCenterX, pixelShiftX);
-            int[] y = Rigidbody.get(i).getDrawY(shiftY, resolutionScaling, resolutionCenterY, pixelShiftY);
-            int length = x.length;
-            g.fillPolygon(x, y, length);
-            //draw center of mass unless that drawing would be larger than the shape
-            if (Rigidbody.get(i).getLargestDistance() / resolutionScaling > 15.0 && Rigidbody.get(i).isMovable()) {
-                g.setColor(Color.red);
-                g.fillOval(convertX(Rigidbody.get(i).getPosX()) - 5, convertY(Rigidbody.get(i).getPosY()) - 5, 10, 10);
-            }
-            //draw debug velocity and acceleration vectors
-            if (debugVector == 1) {
-                g.setColor(Color.red);
-                g.drawLine(convertX(Rigidbody.get(i).getPosX()), convertY(Rigidbody.get(i).getPosY()), convertX(Rigidbody.get(i).getPosX() + Rigidbody.get(i).getVX() * debugVectorScaling), convertY(Rigidbody.get(i).getPosY() + Rigidbody.get(i).getVY() * debugVectorScaling));
-            }
-            else if (debugVector == 2) {
-                g.setColor(Color.blue);
-                g.drawLine(convertX(Rigidbody.get(i).getPosX()), convertY(Rigidbody.get(i).getPosY()), convertX(Rigidbody.get(i).getPosX() + Rigidbody.get(i).getAX() * debugVectorScaling), convertY(Rigidbody.get(i).getPosY() + Rigidbody.get(i).getAY() * debugVectorScaling));
-            }
-            //draw face if one-sided face object
-            if (Rigidbody.get(i).getTriangles().get(0).partOfFace) {
-                g.setColor(Color.red);
-                g.drawLine(x[0], y[0], x[1], y[1]);
-            }
-        }
-        //drawing each point
-        for (int i = 0; i < Point.num; i = i + 1) {
-            try {
-                if (Simulation.get(simID).getObject("Point", i).material.name.contains("Player")) {
-                    playerLock = true;
-                    resolutionCenterX = Point.get(i).getX();
-                    resolutionCenterY = Point.get(i).getY();
-                    pixelShiftX = 0.5* getWidth() - ((Point.get(i).getX() - resolutionCenterX) / resolutionScaling) - resolutionCenterX;
-                    pixelShiftY = 0.5 * getHeight() - ((Point.get(i).getY() - resolutionCenterY) / resolutionScaling) - resolutionCenterY;
-                }
-            } catch (Exception e) {
-                //throw new RuntimeException(e);
-            }
-            if (Point.get(i).simID != simID || !Point.get(i).draw) continue;
-            g.setColor(Point.get(i).getColor());
-            double radius = Point.get(i).getRadius();
-            g.fillOval(convertX(Point.get(i).getX() - radius), convertY(Point.get(i).getY() - radius), (int)(radius * (2.0 / resolutionScaling)), (int)(radius * (2.0 / resolutionScaling)));
-            //g.drawLine(convertX(Point.get(i).getX()), convertY(Point.get(i).getY()), convertX(Point.get(i).getX() + Point.get(i).testRotationWithDrawingPoint[0]), convertY(Point.get(i).getY() + Point.get(i).testRotationWithDrawingPoint[1]));
-
-
-            //draw the center of mass unless the Point is too small (in which case the center of mass circle would be larger than the Point)
-            if (radius / resolutionScaling > 15.0 && Point.get(i).isMovable()) {
-                g.setColor(Color.red);
-                g.fillOval(convertX(Point.get(i).getX()) - 5, convertY(Point.get(i).getY()) - 5, 10, 10);
-            }
-            //draw debug velocity and acceleration vectors
-            if (debugVector == 1) {
-                g.setColor(Color.red);
-                g.drawLine(convertX(Point.get(i).getX()), convertY(Point.get(i).getY()), convertX(Point.get(i).getX() + Point.get(i).getVX() * debugVectorScaling), convertY(Point.get(i).getY() + Point.get(i).getVY() * debugVectorScaling));
-            }
-            else if (debugVector == 2) {
-                g.setColor(Color.blue);
-                g.drawLine(convertX(Point.get(i).getX()), convertY(Point.get(i).getY()), convertX(Point.get(i).getX() + Point.get(i).getAX() * debugVectorScaling), convertY(Point.get(i).getY() + Point.get(i).getAY() * debugVectorScaling));
-            }
-            //lines to show spring attachments
-            if (Point.get(i).isAttached()) {
-                for (int j = 0; j < Point.get(i).getAttachmentNum(); j = j + 1) {
-                    if (Point.get(i).ID < Point.get(i).getPointAttachment(j).ID) {
-                        g.drawLine(convertX(Point.get(i).getX()), convertY(Point.get(i).getY()), convertX(Point.get(i).getPointAttachment(j).getX()), convertY(Point.get(i).getPointAttachment(j).getY()));
+                Triplet drawInformation = rigidbody.getDraw(shiftX, resolutionCenterX, pixelShiftX,
+                        shiftY, resolutionCenterY, pixelShiftY, resolutionScaling);
+                if (rigidbody.simID != simID || !rigidbody.draw) continue;
+                g.setColor(rigidbody.geometry.getColor());
+                switch (drawInformation.getFirstRigidbodyGeometries()) {
+                    case Polygon: {
+                        int[] x = drawInformation.getSecondIntArray();
+                        int[] y = drawInformation.getThirdIntArray();
+                        int length = x.length;
+                        g.fillPolygon(x, y, length);
+                        break;
+                    }
+                    case Circle: {
+                        int radius = (int) (rigidbody.geometry.getLargestDistance() / resolutionScaling);
+                        g.fillOval(drawInformation.getSecondIntArray()[0] - radius, drawInformation.getSecondIntArray()[1] - radius, 2 * radius, 2 * radius);
                     }
                 }
+                for (Joint joint : rigidbody.attachments) {
+                    g.drawLine(convertX(rigidbody.getPosX() + joint.offsetFromCMParent[0]), convertY(rigidbody.getPosY() + joint.offsetFromCMParent[1]),
+                            convertX(joint.connection.getPosX() + joint.offsetFromCMOther[0]), convertY(joint.connection.getPosY() + joint.offsetFromCMOther[1]));
+                }
+
+                //draw center of mass unless that drawing would be larger than the shape
+                double largestDistance = rigidbody.geometry.getLargestDistance();
+                if (largestDistance / resolutionScaling > 15.0 && rigidbody.isMovable()) {
+                    g.setColor(Color.red);
+                    g.fillOval(convertX(rigidbody.getPosX()) - 5, convertY(rigidbody.getPosY()) - 5, 10, 10);
+                }
+
+                //draw debug velocity and acceleration vectors
+                if (debugVector == 1) {
+                    g.setColor(Color.red);
+                    g.drawLine(convertX(rigidbody.getPosX()), convertY(rigidbody.getPosY()),
+                            convertX(rigidbody.getPosX() + rigidbody.getVX() * debugVectorScaling),
+                            convertY(rigidbody.getPosY() + rigidbody.getVY() * debugVectorScaling));
+                } else if (debugVector == 2) {
+                    g.setColor(Color.blue);
+                    g.drawLine(convertX(rigidbody.getPosX()), convertY(rigidbody.getPosY()),
+                            convertX(rigidbody.getPosX() + rigidbody.getAX() * debugVectorScaling),
+                            convertY(rigidbody.getPosY() + rigidbody.getAY() * debugVectorScaling));
+                }
+                g.setColor(Color.red);
+                if (debugBounds) g.drawRect(convertX(rigidbody.geometry.leftBoundBox + rigidbody.getPosX()),
+                        convertY(rigidbody.geometry.topBoundBox + rigidbody.getPosY()),
+                        (int) ((rigidbody.geometry.rightBoundBox - rigidbody.geometry.leftBoundBox) / resolutionScaling),
+                        (int) ((rigidbody.geometry.bottomBoundBox - rigidbody.geometry.topBoundBox) / resolutionScaling));
+                g.setColor(Color.red);
+                if (debugRadius) g.drawOval(convertX(rigidbody.getPosX() - rigidbody.geometry.getLargestDistance()),
+                        convertY(rigidbody.getPosY() - rigidbody.geometry.getLargestDistance()),
+                        (int) (2.0 * rigidbody.geometry.getLargestDistance() / resolutionScaling),
+                        (int) (2.0 * rigidbody.geometry.getLargestDistance() / resolutionScaling));
+            }
+
+            if (debugBounds || debugRadius) for (int i = 0; i < Softbody.num; i++) {
+                Softbody softbody = Softbody.get(i);
+                g.setColor(Color.red);
+                if (debugBounds) g.drawRect(convertX(softbody.minX), convertY(softbody.minY),
+                        (int) ((softbody.maxX - softbody.minX) / resolutionScaling),
+                        (int) ((softbody.maxY - softbody.minY) / resolutionScaling));
+                if (debugRadius) {
+                    double repulse_radius_multiplier = Math.sqrt(Simulation.get(simID).REPULSE_RADIUS_MULTIPLIER);
+                    g.drawOval(convertX(softbody.cM[0] - softbody.getRadius()),
+                            convertY(softbody.cM[1] - softbody.getRadius()),
+                            (int) (2.0 * softbody.getRadius() / resolutionScaling),
+                            (int) (2.0 * softbody.getRadius() / resolutionScaling));
+                    g.setColor(Color.cyan);
+                    g.drawOval(convertX(softbody.cM[0] - repulse_radius_multiplier * softbody.getRadius()),
+                            convertY(softbody.cM[1] - repulse_radius_multiplier * softbody.getRadius()),
+                            (int) (2.0 * repulse_radius_multiplier * softbody.getRadius() / resolutionScaling),
+                            (int) (2.0 * repulse_radius_multiplier * softbody.getRadius() / resolutionScaling));
+
+                }
+            }
+
+            //drawing the world border
+            if (Simulation.get(simID).bounds) {
+                g.setColor(Color.black);
+                int[] p1 = new int[]{convertX(Simulation.get(simID).worldLeftBound), convertY(Simulation.get(simID).worldTopBound)};
+                int[] p2 = new int[]{convertX(Simulation.get(simID).worldRightBound), p1[1]};
+                int[] p3 = new int[]{p2[0], convertY(Simulation.get(simID).worldBottomBound)};
+                int[] p4 = new int[]{p1[0], p3[1]};
+                g.drawLine(p1[0], p1[1], p2[0], p2[1]);
+                g.drawLine(p2[0], p2[1], p3[0], p3[1]);
+                g.drawLine(p3[0], p3[1], p4[0], p4[1]);
+                g.drawLine(p4[0], p4[1], p1[0], p1[1]);
+            }
+
+            if (mouse) {
+                //draw mouse cursor
+                g.setColor(Color.red);
+                g.fillOval(convertX(mouseX) - 5, convertY(mouseY) - 5, 10, 10);
             }
         }
-        //drawing the world border
-        if (Simulation.get(simID).bounds) {
-            g.setColor(Color.black);
-            int[] p1 = new int[]{convertX(Simulation.get(simID).worldLeftBound), convertY(Simulation.get(simID).worldTopBound)};
-            int[] p2 = new int[]{convertX(Simulation.get(simID).worldRightBound), p1[1]};
-            int[] p3 = new int[]{p2[0], convertY(Simulation.get(simID).worldBottomBound)};
-            int[] p4 = new int[]{p1[0], p3[1]};
-            g.drawLine(p1[0], p1[1], p2[0], p2[1]);
-            g.drawLine(p2[0], p2[1], p3[0], p3[1]);
-            g.drawLine(p3[0], p3[1], p4[0], p4[1]);
-            g.drawLine(p4[0], p4[1], p1[0], p1[1]);
-        }
-
-        if (mouse) {
-            //draw mouse cursor
-            g.setColor(Color.red);
-            g.fillOval(convertX(mouseX) - 5, convertY(mouseY) - 5, 10, 10);
+        catch (Exception e) {
+            System.out.println(e);
         }
     }
     private int convertX(double x) {
