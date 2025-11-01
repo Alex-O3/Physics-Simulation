@@ -3,52 +3,46 @@ import java.util.ArrayList;
 import java.awt.*;
 
 class Rigidbody {
-    public int simID;
+    int simID;
+    final Simulation sim;
+    final GeometricType geometry;
 
-    public double COEFFICIENT_OF_RESTITUTION = 0.75; //in my personal opinion, this is mislabeled. In the literature, it is labeled this way,
-    //but in order to preserve a linear interpolation in between the minimum and maximum energy conservation values (in keeping with conservation of momentum)
-    //the squared version of this constant should be used. However, since it only ever appears within a square root, the constant was simplified to be the square root of this linear interpolation/
-    //It's almost as bad of a general-consensus choice, in my opinion, as calling standard deviation standard and absolute mean not as standard (although it should be).
-    public double COEFFICIENT_OF_FRICTION = 0.35;
-    public double GRAVITATIONAL_CONSTANT = 10.0;
-    public double AIR_DENSITY = 0.01204;
-    public double DRAG_COEFFICIENT = 0.95;
-    public double CLAMP_LIMIT = 0.0;
-    public double CONTACT_POINTS_MERGE_DISTANCE = 0.1;
-    public double MOUSE_SPEED_LIMIT = 500.0;
-    public double MTV_EPSILON = 0.00165;
+    //related to softbodies
+    int parentSoftbody = -1;
+    int minIndex1 = -1;
+    int minIndex2 = -1;
+    boolean futureBoundary = false;
+    private double repulseRadius = 0.0;
 
-    public boolean universalGravity = false;
-    public boolean airResistance = false;
-    public boolean buoyancy = false;
-    public boolean bounds = true;
+    //local physical constants
+    double COEFFICIENT_OF_RESTITUTION;
+    double COEFFICIENT_OF_FRICTION;
 
+    //generic state information
     private static final ArrayList<Rigidbody> rigidbodies = new ArrayList<>();
-    public static int num = 0;
-    public final int ID;
-    private boolean invertNormals = false;
+    static int num = 0;
+    final int ID;
     private boolean isMovable = true;
     boolean isHitbox = false;
+    boolean isAttached = false;
     boolean draw = true;
+
     //these ArrayLists are not constant, but the pointer stored to them is, hence the "final"
     final ArrayList<Controller> controllers = new ArrayList<>();
-    private final ArrayList<Double> xPoints = new ArrayList<>();
-    private final ArrayList<Double> yPoints = new ArrayList<>();
-    private final ArrayList<Triangle> triangles = new ArrayList<>();
-    private final ArrayList<Double[]> contactPoints = new ArrayList<>();
-    private final ArrayList<Double[]> MTVs = new ArrayList<>();
+    final ArrayList<Double[]> contactPoints = new ArrayList<>();
+    final ArrayList<Double[]> MTVs = new ArrayList<>();
     final ArrayList<Integer> collidingIDs = new ArrayList<>();
-    //for collidingIDs, 0 - infinity inclusive is reserved for other rigidbodies and -2 - -infinity even numbers is reserved for points. -1 is reserved for the walls
-    //-2 - infinity odd numbers reserved for softbody point edges collisions
+    final ArrayList<Joint> attachments = new ArrayList<>();
+    //for collidingIDs, 0 - infinity inclusive is reserved for other rigidbodies and
+    // -2 - -infinity numbers is reserved for softbody edges. These are then converted by n -> -n -2 to get the
+    //ID of the rigidbody involved in that collision and the other side of the softbody edge.
+    //AABBs refer to softbodies as their localID mapped n -> -n - 2, and not edges.
+
     double mass;
     double inertia;
-    private final Color color;
     private final double area;
-    private double largestDistance = 0.0;
-    double bottomBoundBox;
-    double topBoundBox;
-    double leftBoundBox;
-    double rightBoundBox;
+
+    //mouse fields
     private double lastMouseX = 250.0;
     private double lastMouseY = 250.0;
     private double currentMouseX = 250.0;
@@ -57,22 +51,19 @@ class Rigidbody {
     private double flingY = 0.0;
     private boolean mouseHold = false;
     private boolean mouseRelease = false;
+
     private boolean lockedRotation = false;
     private boolean adoptOnlyOtherSurface = false;
 
-    public double worldTopBound = 0.0;
-    public double worldBottomBound = 460.0;
-    public double worldLeftBound = 0.0;
-    public double worldRightBound = 485.0;
-
-    double posX;
-    double posY;
-    double vX;
-    double vY;
-    double aX;
-    double aY;
-    double angularV;
-    double angularA;
+    //movement info
+    private double posX;
+    private double posY;
+    private double vX;
+    private double vY;
+    private double aX;
+    private double aY;
+    private double angularV;
+    private double angularA;
     private final double[] initialExternalForces = new double[2];
     private final double initialExternalTorque;
 
@@ -85,23 +76,11 @@ class Rigidbody {
     private double newangularV;
     private double newangularA;
 
-    private double otherUpdatePosX;
-    private double otherUpdatePosY;
-    private double otherUpdateVX;
-    private double otherUpdateVY;
-    private int vUpdateCount = 0;
-    private double otherUpdateAX;
-    private double otherUpdateAY;
-
-    private final double cX;
-    private final double cY;
-
-    public Rigidbody(double[] inputX, double[] inputY, double[] motion, double mass, Color color, int simID) {
+    public Rigidbody(GeometricType geometry, double[] motion, double mass, Color color, int simID) {
         this.simID = simID;
         ID = num;
         num = num + 1;
         this.mass = mass;
-        this.color = color;
         posX = motion[0];
         posY = motion[1];
         vX = motion[2];
@@ -118,164 +97,30 @@ class Rigidbody {
         newaY = aY;
         newangularV = angularV;
         newangularA = angularA;
-        COEFFICIENT_OF_RESTITUTION = Simulation.get(simID).COEFFICIENT_OF_RESTITUTION;
-        COEFFICIENT_OF_FRICTION = Simulation.get(simID).COEFFICIENT_OF_FRICTION;
 
-        int length = Math.min(inputX.length, inputY.length);
-        for (int i = 0; i < length; i = i + 1) {
-            xPoints.add(inputX[i]);
-            yPoints.add(inputY[i]);
-        }
-        double totalArea = 0.0; //the signed area of the polygon to determine the winding order
-        for (int i = 0; i < length; i = i + 1) {
-            //find the signed area of the trapezoid
-            double trapezoidArea = 0.5 * (xPoints.get(mod(i + 1, length)) - xPoints.get(i)) * (yPoints.get(mod(i + 1, length)) + yPoints.get(i));
-            //add to the total signed area of the polygon
-            totalArea = totalArea + trapezoidArea;
-        }
-        if (totalArea < 0.0) invertNormals = true;
-        area = Math.abs(totalArea);
-
-        //create a list of triangles in which each one is unassigned
-        for (int i = 0; i < length; i = i + 1) {
-            triangles.add(new Triangle());
-        }
-
-        //begin earmarking triangulation process.
-        int numTriangles = 0;
-        int[] pointExclusions = new int[length]; //3 is covered (excluded), 2 is convex but invalid (excluded as main), 1 is concave (excluded as main), and 0 is not investigated yet
-        for (int i = 0; i < 10 * length; i = i + 1) {
-            //find a suitable point in front of and behind the point in question in the order for attempted triangulation
-            if (numTriangles == length - 2) break;
-            for (int j = 0; j < length; j = j + 1) {
-                if (pointExclusions[mod(i + j,length)] != 3) {
-                    i = i + j;
-                    break;
-                }
-            }
-            int backwardIndex = mod(i,length);
-            int forwardIndex = mod(i,length);
-            for (int j = 1; j < length; j = j + 1) {
-                if (pointExclusions[mod(i - j, length)] != 3) {
-                    backwardIndex = mod(i - j, length);
-                    break;
-                }
-            }
-            for (int j = 1; j < length; j = j + 1) {
-                if (pointExclusions[mod(i + j, length)] != 3) {
-                    forwardIndex = mod(i + j, length);
-                    break;
-                }
-            }
-            //check if the point in question has a concave angle in the proposed triangle. Check normals on centroid
-            double[] center = new double[]{(xPoints.get(mod(i,length)) + xPoints.get(mod(forwardIndex,length)) + xPoints.get(mod(backwardIndex,length))) / 3.0, (yPoints.get(mod(i,length)) + yPoints.get(mod(forwardIndex,length)) + yPoints.get(mod(backwardIndex,length))) / 3.0};
-            boolean concave = false;
-            concave = isOnNormalSide(center,mod(backwardIndex, length), mod(i,length));
-            if (!concave) {
-                concave = isOnNormalSide(center,mod(i,length),mod(forwardIndex, length));
-            }
-            if (!concave) {
-                concave = isOnNormalSide(center,mod(forwardIndex, length),mod(backwardIndex, length));
-            }
-            //if concave, then mark it and move on to the next point.
-            if (concave) pointExclusions[mod(i,length)] = 1;
-            else {
-                //check if any other polygon points are within the proposed triangle to determine the triangle's validity
-                boolean valid = true;
-                for (int j = 0; j < length; j = j + 1) {
-                    if (j != mod(i,length) && j != mod(backwardIndex, length) && j != mod(forwardIndex, length) && pointExclusions[j] != 3) { //all checked points have to not be part of the triangle and not already covered
-                        double[] point = new double[]{xPoints.get(j), yPoints.get(j)};
-                        boolean validPoint = isOnNormalSide(point, mod(backwardIndex, length), mod(i,length));
-                        if (!validPoint) validPoint = isOnNormalSide(point, mod(i,length), mod(forwardIndex,length));
-                        if (!validPoint) validPoint = isOnNormalSide(point, mod(forwardIndex,length), mod(backwardIndex,length));
-                        if (!validPoint) {
-                            valid = false;
-                            pointExclusions[i] = 2; //2 means the point in question is convex, but invalid because it contains another polygon point in the proposed triangle
-                            break;
-                        }
-                    }
-                }
-                if (valid) { //here, the proposed triangle has been verified to be both within the polygon (concave test)
-                             // and to not contain any other polygon points inside it, so as to not be self-intersecting
-                    //Save as a triangle and mark point as covered (3)
-                    pointExclusions[mod(i,length)] = 3; //it means this point is the parent point of a triangle that is now removed from the polygon in the triangulation process
-                    Triangle triangle = new Triangle(mod(backwardIndex, length), mod(i,length), mod(forwardIndex,length),ID, center);
-                    triangle.setMTVEpsilon(MTV_EPSILON);
-                    triangles.set(mod(i,length), triangle);
-                    numTriangles = numTriangles + 1;
-                }
-            }
-        }
-        //calculate properties of polygon
-        //center of mass
+        this.geometry = geometry;
+        inertia = mass * geometry.getMasslessInertia();
+        area = geometry.getArea();
+        geometry.setColor(color);
         rigidbodies.add(this);
-        double centerOfMassX = 0.0;
-        double centerOfMassY = 0.0;
-        double calcInertia = 0.0;
-        //center of mass
-        for (int i = 0; i < length; i = i + 1) {
-            if (pointExclusions[i] == 3) {
-                triangles.get(i).calculateProperties();
-                centerOfMassX = centerOfMassX + (triangles.get(i).getArea() / area) * triangles.get(i).getCenterX();
-                centerOfMassY = centerOfMassY + (triangles.get(i).getArea() / area) * triangles.get(i).getCenterY();
-            }
-        }
-        //moment of inertia
-        for (int i = 0; i < length; i = i + 1) {
-            double squaredDistance = (triangles.get(i).getCenterX() - centerOfMassX) * (triangles.get(i).getCenterX() - centerOfMassX);
-            squaredDistance = squaredDistance + (triangles.get(i).getCenterY() - centerOfMassY) * (triangles.get(i).getCenterY() - centerOfMassY);
-            calcInertia = calcInertia + triangles.get(i).getInertia() + (triangles.get(i).getArea() / area) * mass * squaredDistance;
-        }
-        inertia = calcInertia;
-        //shift all points in the polygon's coordinate plane such that the center of mass is the origin and find the largest squared distance
-        cX = centerOfMassX;
-        cY = centerOfMassY;
-        for (int i = 0; i < length; i = i + 1) {
-            xPoints.set(i, xPoints.get(i) - centerOfMassX);
-            if (Double.isNaN(leftBoundBox) || xPoints.get(i) < leftBoundBox) leftBoundBox = xPoints.get(i);
-            if (Double.isNaN(rightBoundBox) || xPoints.get(i) > rightBoundBox) rightBoundBox = xPoints.get(i);
-            yPoints.set(i, yPoints.get(i) - centerOfMassY);
-            if (Double.isNaN(topBoundBox) || yPoints.get(i) < topBoundBox) topBoundBox = yPoints.get(i);
-            if (Double.isNaN(topBoundBox) || yPoints.get(i) > bottomBoundBox) bottomBoundBox = yPoints.get(i);
-            triangles.get(i).shift(centerOfMassX, centerOfMassY);
-            double temp = xPoints.get(i) * xPoints.get(i) + yPoints.get(i) * yPoints.get(i);
-            if (temp > largestDistance) largestDistance = temp;
-        }
-
-        if (Simulation.showCreationInfo) {
-            System.out.println("Area: " + area + ", Moment of Inertia: " + inertia + ", Mass: " + this.mass + ", Difference against air density: " + ((mass / area) - AIR_DENSITY));
-            System.out.print("Triangulation Categorization: [");
-            //3 is covered (excluded), 2 is convex but invalid (excluded as main), 1 is concave (excluded as main), and 0 is not investigated yet
-            for (int i = 0; i < pointExclusions.length; i = i + 1) {
-                switch (pointExclusions[i]) {
-                    case (0): {
-                        System.out.print("Skipped");
-                        break;
-                    }
-                    case (1): {
-                        System.out.print("Concave (not skipped, invalid)");
-                        break;
-                    }
-                    case (2): {
-                        System.out.print("Convex (not skipped, self-intersecting -> invalid)");
-                        break;
-                    }
-                    case (3): {
-                        System.out.print("Valid ear vertex (convex, not self-intersecting -> valid)");
-                        break;
-                    }
-                }
-                if (i < pointExclusions.length - 1) System.out.print(" | ");
-                else System.out.println("]");
-            }
-        }
 
         Simulation.get(simID).getSAPCell(0, 0).addBox(ID);
         Simulation.get(simID).BVHtrees.get(0).addBox(ID);
+        sim = Simulation.get(simID);
 
+        COEFFICIENT_OF_RESTITUTION = sim.COEFFICIENT_OF_RESTITUTION;
+        COEFFICIENT_OF_FRICTION = sim.COEFFICIENT_OF_FRICTION;
     }
 
     //general motion. Copied and altered to fit Point in that file
+    private void integrateMotion(double dt) {
+        newposX += newvX * dt;
+        newposY += newvY * dt;
+        rotateAroundCenter(dt);
+        newvX += aX * dt;
+        newvY += aY * dt;
+        newangularV += angularA * dt;
+    }
     public static void step(double dt, int simID) {
         for (int i = 0; i < rigidbodies.size(); i = i + 1) {
             if (rigidbodies.get(i).simID == simID) {
@@ -303,10 +148,111 @@ class Rigidbody {
             }
         }
     }
+    private void updateMotion(double dt) {
+        //clamp some values
+        if (newvX * newvX + newvY * newvY < sim.CLAMP_LIMIT * sim.CLAMP_LIMIT) {
+            newvX = 0.0;
+            newvY = 0.0;
+        }
+        if (mass / area >= 1.5 * sim.AIR_DENSITY && newangularV != 0.0 && Math.abs(newangularV) * geometry.largestDistanceSquared < sim.CLAMP_LIMIT * sim.CLAMP_LIMIT) {
+            newangularV = 0.0;
+        }
+        if (!Double.isNaN(newposX)) posX = newposX;
+        if (!Double.isNaN(newposY)) posY = newposY;
+        if (!Double.isNaN(newvX)) vX = newvX;
+        if (!Double.isNaN(newvY)) vY = newvY;
+        if (!Double.isNaN(newaX)) aX = newaX;
+        if (!Double.isNaN(newaY)) aY = newaY;
+        if (!Double.isNaN(newangularV)) angularV = newangularV;
+        if (!Double.isNaN(newangularA)) angularA = newangularA;
+
+        if (!controllers.isEmpty()) {
+            //take into account controllers first once 'onGround' is known
+            boolean onGround = false;
+            double[] maxGroundVelocity = new double[]{0.0, 0.0};
+            double maxGroundVelocityMagnitude = 0.0;
+            for (int i = 0; i < collidingIDs.size(); i = i + 1) {
+                if (Rigidbody.getMaterial(collidingIDs.get(i)).name.contains("Ground")) {
+                    if (contactPoints.get(i)[0] * initialExternalForces[0] + contactPoints.get(i)[1] * initialExternalForces[1]
+                            > posX * initialExternalForces[0] + posY * initialExternalForces[1]) {
+                        onGround = true;
+                        double gvX = Rigidbody.getVX(collidingIDs.get(i));
+                        double gvY = Rigidbody.getVY(collidingIDs.get(i));
+                        double magnitude = Math.sqrt(gvX * gvX + gvY * gvY);
+                        if (magnitude > maxGroundVelocityMagnitude) {
+                            maxGroundVelocityMagnitude = magnitude;
+                            maxGroundVelocity[0] = gvX;
+                            maxGroundVelocity[1] = gvY;
+                        }
+                    }
+                }
+            }
+            for (int i = 0; i < controllers.size(); i = i + 1) {
+                boolean touchingObstacle = false;
+                for (int j = 0; j < collidingIDs.size(); j++) {
+                    if (!Rigidbody.get(collidingIDs.get(j)).isMovable()) {
+                        touchingObstacle = true;
+                        break;
+                    }
+                }
+                controllers.get(i).respondToKey(dt, Simulation.get(simID).display.keysCache, Simulation.get(simID).display.firstPress,
+                        Simulation.get(simID).display.keyReleasedFirstTime, onGround, touchingObstacle, maxGroundVelocity);
+            }
+        }
+    }
+    static void clearCollisionInformation(int simID) {
+        for (Rigidbody rigidbody : rigidbodies) {
+            if (rigidbody.simID != simID) continue;
+            rigidbody.contactPoints.clear();
+            rigidbody.MTVs.clear();
+            rigidbody.collidingIDs.clear();
+        }
+    }
+    public boolean checkCollisions(Rigidbody otherObject) {
+        return(geometry.findCollisions(otherObject.geometry));
+    }
+    public boolean checkCollisions(Softbody softbody) {
+        return(geometry.findCollisions(softbody));
+    }
+    private boolean checkForCollisionsWall() {
+        return(geometry.checkForCollisionsWall());
+    }
+    static void finalizeCollisionInformation(int simID) {
+        for (Rigidbody rigidbody : rigidbodies) {
+            if (rigidbody.simID != simID) continue;
+            if (rigidbody.sim.bounds) rigidbody.checkForCollisionsWall();
+
+            //prune the list for points too close to one another (same point, but different triangle with floating point precision differences)
+            if (!rigidbody.contactPoints.isEmpty()) {
+                for (int i = 0; i < rigidbody.contactPoints.size(); i = i + 1) {
+                    for (int j = i + 1; j < rigidbody.contactPoints.size(); j = j + 1) {
+                        if (i != j && !Double.isNaN(rigidbody.contactPoints.get(i)[0]) && !Double.isNaN(rigidbody.contactPoints.get(j)[0])) {
+                            double temp1 = rigidbody.contactPoints.get(i)[0] - rigidbody.contactPoints.get(j)[0];
+                            double temp2 = rigidbody.contactPoints.get(i)[1] - rigidbody.contactPoints.get(j)[1];
+                            double distance = temp1 * temp1 + temp2 * temp2;
+                            distance = Math.sqrt(Math.max(distance, 0.0));
+                            if (distance <= rigidbody.sim.CONTACT_POINTS_MERGE_DISTANCE) {
+                                rigidbody.contactPoints.set(j, new Double[]{Double.NaN, Double.NaN});
+                            }
+                        }
+                    }
+                }
+            }
+            int length = rigidbody.contactPoints.size();
+            for (int i = 0; i < length; i = i + 1) {
+                if (i >= rigidbody.contactPoints.size()) break;
+                if (Double.isNaN(rigidbody.contactPoints.get(i)[0])) {
+                    rigidbody.contactPoints.remove(i);
+                    rigidbody.MTVs.remove(i);
+                    rigidbody.collidingIDs.remove(i);
+                    i = i - 1;
+                }
+            }
+        }
+    }
     private void calcMotion(double dt) {
         newposX = posX;
         newposY = posY;
-        double[] posChange = new double[]{0.0, 0.0};
         newvX = vX;
         newvY = vY;
         newangularV = angularV;
@@ -316,9 +262,9 @@ class Rigidbody {
             double vmX = (currentMouseX - lastMouseX) / dt;
             double vmY = (currentMouseY - lastMouseY) / dt;
             double magnitude = Math.sqrt(vmX * vmX + vmY * vmY);
-            if (magnitude > MOUSE_SPEED_LIMIT) {
-                vmX *= MOUSE_SPEED_LIMIT / magnitude;
-                vmY *= MOUSE_SPEED_LIMIT / magnitude;
+            if (magnitude > sim.MOUSE_SPEED_LIMIT) {
+                vmX *= sim.MOUSE_SPEED_LIMIT / magnitude;
+                vmY *= sim.MOUSE_SPEED_LIMIT / magnitude;
             }
             double rX = currentMouseX - posX;
             double rY = currentMouseY - posY;
@@ -338,12 +284,11 @@ class Rigidbody {
 
         //check for collisions and do one of two options for updating motion based on whether the rigidbody is colliding with another
         boolean intersecting = !collidingIDs.isEmpty();
+        int countOfValidCollisionImpulses = 0;
 
-        //dt is divided by the number of collisions so that acceleration and velocity are not repeatedly
-        //applied, which would ultimately result in (for example) a 3x acceleration with 3 collision points
         if (intersecting) for (int h = 0; h < contactPoints.size(); h = h + 1) {
-            posChange[0] += MTVs.get(h)[0];
-            posChange[1] += MTVs.get(h)[1];
+            newposX += MTVs.get(h)[0];
+            newposY += MTVs.get(h)[1];
             double magnitude = Math.sqrt(MTVs.get(h)[0] * MTVs.get(h)[0] + MTVs.get(h)[1] * MTVs.get(h)[1]);
             if (Double.isNaN(magnitude)) magnitude = 0.0;
             double nX = MTVs.get(h)[0] / magnitude;
@@ -360,17 +305,13 @@ class Rigidbody {
             double rPerp1y = rX;
             double rPerp2x = 0.0;
             double rPerp2y = 0.0;
-            if (collidingIDs.get(h) <= -2 && mod(collidingIDs.get(h), 2) == 1) {
-                double radius = Point.get(((-collidingIDs.get(h) - 1) / 2) - 1).getSolidRadius();
-                rPerp2x = -nY * radius;
-                rPerp2y = nX * radius;
-            }
-            else if (collidingIDs.get(h) != -1) {
+            if (collidingIDs.get(h) >= 0) {
                 rPerp2x = -(contactPoints.get(h)[1] - getPosY(collidingIDs.get(h)));
                 rPerp2y = contactPoints.get(h)[0] - getPosX(collidingIDs.get(h));
             }
             //ensure the objects are actually moving towards each other
             if (((vX + rPerp1x * angularV) - (getVX(collidingIDs.get(h)) + rPerp2x * getAngularV(collidingIDs.get(h)))) * nX + ((vY + rPerp1y * angularV) - (getVY(collidingIDs.get(h)) + rPerp2y * getAngularV(collidingIDs.get(h)))) * nY > 0.0) {
+                countOfValidCollisionImpulses += 1;
                 continue;
             }
             if (collidingIDs.get(h) == -1 || !getIsMovable(collidingIDs.get(h))) {
@@ -395,194 +336,63 @@ class Rigidbody {
             newvY = newvY + (jr / mass) * nY + (friction / mass) * nX;
             if (!lockedRotation) newangularV = newangularV + (jr / inertia) * (rPerp1x * nX + rPerp1y * nY) + (friction / inertia) * (rPerp1x * -nY + rPerp1y * nX);
 
-            if (collidingIDs.get(h) <= -2 && mod(collidingIDs.get(h), 2) == 1) {
-                int tempIndex = ((-collidingIDs.get(h) - 1) / 2) - 1;
-                int softbodyIndex = Point.get(tempIndex).parentSoftbody;
+            if (collidingIDs.get(h) <= -2) {//for the case of softbodies, handle later
+                int tempIndex = convertSoftbodyEdge(collidingIDs.get(h));
+                int softbodyIndex = Rigidbody.get(tempIndex).parentSoftbody;
                 int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf(tempIndex);
-                Point point1 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex));
-                Point point2 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % Softbody.get(softbodyIndex).boundarySize()));
+                Rigidbody point1 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex));
+                Rigidbody point2 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % Softbody.get(softbodyIndex).boundarySize()));
                 double update = -(jr / getMass(collidingIDs.get(h))) * nX;
-                point1.changeVX(update);
-                point2.changeVX(update);
+                point1.newvX += update;
+                point2.newvX += update;
                 update = -(jr / getMass(collidingIDs.get(h))) * nY;
-                point1.changeVY(update);
-                point2.changeVY(update);
+                point1.newvY += update;
+                point2.newvY += update;
 
                 magnitude = Math.sqrt(MTVs.get(h)[0] * MTVs.get(h)[0] + MTVs.get(h)[1] * MTVs.get(h)[1]);
-                double multiplier = -((magnitude - MTV_EPSILON) / magnitude) * (mass / (getMass(collidingIDs.get(h))));
-                multiplier *= 1.0 + (MTV_EPSILON / Math.abs(multiplier));
-                point1.changeX(MTVs.get(h)[0] * multiplier);
-                point2.changeX(MTVs.get(h)[0] * multiplier);
-                point1.changeY(MTVs.get(h)[1] * multiplier);
-                point2.changeY(MTVs.get(h)[1] * multiplier);
+                double multiplier = -((magnitude - sim.MTV_EPSILON) / magnitude) * (mass / (getMass(collidingIDs.get(h))));
+                multiplier *= 1.0 + (sim.MTV_EPSILON / Math.abs(multiplier));
+                point1.newposX += MTVs.get(h)[0] * multiplier;
+                point2.newposX += MTVs.get(h)[0] * multiplier;
+                point1.newposY += MTVs.get(h)[1] * multiplier;
+                point2.newposY += MTVs.get(h)[1] * multiplier;
             }
         }
-
-        integrateMotion(dt);
-
-
-        newposX += posChange[0];
-        newposY += posChange[1];
+        if (countOfValidCollisionImpulses > 0) {
+            newvX = vX + (newvX - vX) / countOfValidCollisionImpulses;
+            newvY = vY + (newvY - vY) / countOfValidCollisionImpulses;
+        }
 
         newaX = initialExternalForces[0];
         newaY = initialExternalForces[1];
         if (!lockedRotation) newangularA = initialExternalTorque;
-        if (universalGravity) {
+        if (sim.universalGravity) {
             double[] results = calculateGravity();
             newaX += results[0];
             newaY += results[1];
         }
-        if (airResistance || buoyancy) {
-            calculateAirResistance();
+        if (sim.airResistance) {
+            double[] results = geometry.calculateAirResistance(sim.AIR_DENSITY, sim.DRAG_COEFFICIENT, new double[]{vX, vY});
+            newaX += results[0] / mass;
+            newaY += results[1] / mass;
+            newangularA += results[2] / inertia;
         }
-    }
-    static void clearCollisionInformation(int simID) {
-        for (Rigidbody rigidbody : rigidbodies) {
-            if (rigidbody.simID != simID) continue;
-            rigidbody.contactPoints.clear();
-            rigidbody.MTVs.clear();
-            rigidbody.collidingIDs.clear();
-        }
-    }
-    static void finalizeCollisionInformation(int simID) {
-        for (Rigidbody rigidbody : rigidbodies) {
-            if (rigidbody.simID != simID) continue;
-            if (rigidbody.bounds) rigidbody.checkForCollisionsWall();
+        calculateRepulsion();
+        calculateJointForceEffects();
 
-            //prune the list for points too close to one another (same point, but different triangle with floating point precision differences)
-            if (!rigidbody.contactPoints.isEmpty()) {
-                for (int i = 0; i < rigidbody.contactPoints.size(); i = i + 1) {
-                    for (int j = i + 1; j < rigidbody.contactPoints.size(); j = j + 1) {
-                        if (i != j && !Double.isNaN(rigidbody.contactPoints.get(i)[0]) && !Double.isNaN(rigidbody.contactPoints.get(j)[0])) {
-                            double temp1 = rigidbody.contactPoints.get(i)[0] - rigidbody.contactPoints.get(j)[0];
-                            double temp2 = rigidbody.contactPoints.get(i)[1] - rigidbody.contactPoints.get(j)[1];
-                            double distance = temp1 * temp1 + temp2 * temp2;
-                            distance = Math.sqrt(Math.max(distance, 0.0));
-                            if (distance <= rigidbody.CONTACT_POINTS_MERGE_DISTANCE) {
-                                rigidbody.contactPoints.set(j, new Double[]{Double.NaN, Double.NaN});
-                            }
-                        }
-                    }
-                }
-            }
-            int length = rigidbody.contactPoints.size();
-            for (int i = 0; i < length; i = i + 1) {
-                if (i >= rigidbody.contactPoints.size()) break;
-                if (Double.isNaN(rigidbody.contactPoints.get(i)[0])) {
-                    rigidbody.contactPoints.remove(i);
-                    rigidbody.MTVs.remove(i);
-                    rigidbody.collidingIDs.remove(i);
-                    i = i - 1;
-                }
-            }
-        }
-    }
-    boolean checkForCollisionsNarrow(Rigidbody otherObject) {
-        if (!(otherObject.simID == simID && (isHitbox || !otherObject.isHitbox))) return(false);
-        boolean intersecting = false;
-        for (int i = 0; i < xPoints.size(); i = i + 1) {
-            for (int j = 0; j < otherObject.getNumPoints(); j = j + 1) {
-                if (triangles.get(i).doesExist() && otherObject.getTriangles().get(j).doesExist()){
-                    Triplet results = triangles.get(i).checkCollisions(otherObject.getTriangles().get(j));
-                    if (results.getFirstBoolean()) {
-                        intersecting = true;
-                        contactPoints.add(results.getThirdDoubleArrayReference());
-                        MTVs.add(results.getSecondDoubleArrayReference());
-                        collidingIDs.add(otherObject.ID);
-                    }
-                }
-            }
-        }
-        return(intersecting);
-    }
-    boolean checkForCollisionsNarrow(Point otherPoint) {
-        if (!(otherPoint.simID == simID && (isHitbox || !otherPoint.isHitbox))) return(false);
-        boolean intersecting = false;
-        for (int i = 0; i < xPoints.size(); i = i + 1) {
-            if (triangles.get(i).doesExist()) {
-                Triplet results = triangles.get(i).checkCollisions(otherPoint);
-                if (results.getFirstBoolean()) {
-                    intersecting = true;
-                    contactPoints.add(results.getThirdDoubleArrayReference());
-                    MTVs.add(results.getSecondDoubleArrayReference());
-                    collidingIDs.add(otherPoint.ID * -2 - 2);
-                }
-            }
-        }
-        return(intersecting);
-    }
-    boolean checkForCollisionsNarrow(Softbody softbody) {
-        boolean intersecting = false;
-        for (int i = 0; i < xPoints.size(); i = i + 1) {
-            Triplet results = softbody.resolvePointInside(new double[]{xPoints.get(i) + posX, yPoints.get(i) + posY}, 0.0);
-            if (results.getFirstBoolean()) {
-                Double[] MTV = new Double[2];
-                double multiplier = (getMass(results.getThirdInt()) / (getMass(results.getThirdInt()) + mass));
-                MTV[0] = results.getSecondDoubleArray()[0] * multiplier;
-                MTV[1] = results.getSecondDoubleArray()[1] * multiplier;
-                Double[] contactPoint = new Double[]{xPoints.get(i) + posX + MTV[0], yPoints.get(i) + posY + MTV[1]};
-                contactPoints.add(contactPoint);
-                MTVs.add(MTV);
-                collidingIDs.add(results.getThirdInt());
-                intersecting = true;
-            }
-        }
-        return(intersecting);
-    }
-    private boolean checkForCollisionsWall() {
-        boolean intersecting = false;
-        boolean wallIntersection = false;
-        double left = 0.0;
-        double right = 0.0;
-        double bottom = 0.0;
-        double top = 0.0;
-        for (int i = 0; i < xPoints.size(); i = i + 1) {
-            double x = xPoints.get(i) + posX;
-            double y = yPoints.get(i) + posY;
-            if (y >= worldBottomBound) {
-                if (Math.abs(worldBottomBound - y) > Math.abs(bottom)){
-                    bottom = worldBottomBound - y;
-                    MTVs.add(new Double[]{0.0, bottom - MTV_EPSILON});
-                    contactPoints.add(new Double[]{x, worldBottomBound});
-                    collidingIDs.add(-1);
-                    intersecting = true;
-                }
-            }
-            if (y <= worldTopBound) {
-                if (Math.abs(worldTopBound - y) > Math.abs(top)){
-                    top = worldTopBound - y;
-                    MTVs.add(new Double[]{0.0, top + MTV_EPSILON});
-                    contactPoints.add(new Double[]{x, worldTopBound});
-                    collidingIDs.add(-1);
-                    intersecting = true;
-                }
-            }
-            if (x <= worldLeftBound) {
-                if (Math.abs(worldLeftBound - x) > Math.abs(left)){
-                    left = worldLeftBound - x;
-                    MTVs.add(new Double[]{left + MTV_EPSILON, 0.0});
-                    contactPoints.add(new Double[]{worldLeftBound, y});
-                    collidingIDs.add(-1);
-                    intersecting = true;
-                }
-            }
-            if (x >= worldRightBound) {
-                if (Math.abs(worldRightBound - x) > Math.abs(right)){
-                    right = worldRightBound - x;
-                    MTVs.add(new Double[]{right - MTV_EPSILON, 0.0});
-                    contactPoints.add(new Double[]{worldRightBound, y});
-                    collidingIDs.add(-1);
-                    intersecting = true;
-                }
-            }
-        }
-        return(intersecting);
+        integrateMotion(dt);
     }
     private void calcMotionInfiniteMass(int index) {
         double rX = contactPoints.get(index)[0] - posX;
         double rY = contactPoints.get(index)[1] - posY;
         double rPerp1x = -rY;
         double rPerp1y = rX;
+        double rPerp2x = 0.0;
+        double rPerp2y = 0.0;
+        if (collidingIDs.get(index) >= 0) {
+            rPerp2x = -(contactPoints.get(index)[1] - getPosY(collidingIDs.get(index)));
+            rPerp2y = contactPoints.get(index)[0] - getPosX(collidingIDs.get(index));
+        }
         double magnitude = Math.sqrt(MTVs.get(index)[0] * MTVs.get(index)[0] + MTVs.get(index)[1] * MTVs.get(index)[1]);
         double nX = MTVs.get(index)[0] / magnitude;
         double nY = MTVs.get(index)[1] / magnitude;
@@ -590,13 +400,7 @@ class Rigidbody {
             nX = 0.0;
             nY = 0.0;
         }
-        double rPerp2x = -(contactPoints.get(index)[1] - Rigidbody.getPosY(collidingIDs.get(index)));
-        double rPerp2y = contactPoints.get(index)[0] - Rigidbody.getPosX(collidingIDs.get(index));
-        if (Double.isNaN(rPerp2x)) {
-            rPerp2x = 0.0;
-            rPerp2y = 0.0;
-        }
-        double jr = (vX + rPerp1x * angularV - getVX(collidingIDs.get(index)) - rPerp2x * getAngularV(collidingIDs.get(index))) * nX + (vY + rPerp1y * angularV - getVY(collidingIDs.get(index)) - rPerp2y * getAngularV(collidingIDs.get(index))) * nY;
+        double jr = (vX + rPerp1x * angularV) * nX + (vY + rPerp1y * angularV) * nY;
         jr = jr * -(1.0 + getCOEFFICIENT_OF_RESTITUTION(collidingIDs.get(index)));
         double temp1 = rPerp1x * nX + rPerp1y * nY;
         jr = jr / ((1.0 / mass) + (1.0 / inertia) * temp1 * temp1);
@@ -610,74 +414,8 @@ class Rigidbody {
 
         newvX = newvX + (jr / mass) * nX + (friction / mass) * -nY;
         newvY = newvY + (jr / mass) * nY + (friction / mass) * nX;
-        if (!lockedRotation) newangularV = newangularV + (jr / inertia) * (rPerp1x * nX + rPerp1y * nY) + (friction / inertia) * (rPerp1x * -nY + rPerp1y * nX);
+        if (!lockedRotation) newangularV = newangularV + (jr / inertia) * (rPerp1x * nX + rPerp1y * nY) + (friction / inertia) * (temp1);
 
-    }
-    private void integrateMotion(double dt) {
-        newposX += newvX * dt;
-        newposY += newvY * dt;
-        rotateAroundCenter(dt);
-        newvX += aX * dt;
-        newvY += aY * dt;
-        newangularV += angularA * dt;
-    }
-    private void updateMotion(double dt) {
-        newposX += otherUpdatePosX;
-        newposY += otherUpdatePosY;
-        if (vUpdateCount == 0) vUpdateCount = 1;
-        newvX += otherUpdateVX / (vUpdateCount + collidingIDs.size());
-        newvY += otherUpdateVY / (vUpdateCount + collidingIDs.size());
-        vUpdateCount = 0;
-        newaX += otherUpdateAX;
-        newaY += otherUpdateAY;
-        //clamp some values
-        if (newvX * newvX + newvY * newvY < CLAMP_LIMIT * CLAMP_LIMIT) {
-            newvX = 0.0;
-            newvY = 0.0;
-        }
-        if (mass / area >= 1.5 * AIR_DENSITY && newangularV != 0.0 && Math.abs(newangularV) * largestDistance < CLAMP_LIMIT) {
-            newangularV = 0.0;
-        }
-        if (!Double.isNaN(newposX)) posX = newposX;
-        if (!Double.isNaN(newposY)) posY = newposY;
-        if (!Double.isNaN(newvX)) vX = newvX;
-        if (!Double.isNaN(newvY)) vY = newvY;
-        if (!Double.isNaN(newaX)) aX = newaX;
-        if (!Double.isNaN(newaY)) aY = newaY;
-        if (!Double.isNaN(newangularV)) angularV = newangularV;
-        if (!Double.isNaN(newangularA)) angularA = newangularA;
-
-        otherUpdatePosX = 0.0;
-        otherUpdatePosY = 0.0;
-        otherUpdateVX = 0.0;
-        otherUpdateVY = 0.0;
-        otherUpdateAX = 0.0;
-        otherUpdateAY = 0.0;
-
-        if (!controllers.isEmpty()) {
-            //take into account controllers first once 'onGround' is known
-            boolean onGround = false;
-            double[] maxGroundVelocity = new double[]{0.0, 0.0};
-            double maxGroundVelocityMagnitude = 0.0;
-            for (int i = 0; i < collidingIDs.size(); i = i + 1) {
-                if (Rigidbody.getMaterial(collidingIDs.get(i)).name.contains("Ground")) {
-                    if (contactPoints.get(i)[0] * initialExternalForces[0] + contactPoints.get(i)[1] * initialExternalForces[1] > posX * initialExternalForces[0] + posY * initialExternalForces[1]) {
-                        onGround = true;
-                        double gvX = Rigidbody.getVX(collidingIDs.get(i));
-                        double gvY = Rigidbody.getVY(collidingIDs.get(i));
-                        double magnitude = Math.sqrt(gvX * gvX + gvY * gvY);
-                        if (magnitude > maxGroundVelocityMagnitude) {
-                            maxGroundVelocityMagnitude = magnitude;
-                            maxGroundVelocity[0] = gvX;
-                            maxGroundVelocity[1] = gvY;
-                        }
-                    }
-                }
-            }
-            for (int i = 0; i < controllers.size(); i = i + 1) {
-                controllers.get(i).respondToKey(dt, Simulation.get(simID).display.keysCache, Simulation.get(simID).display.firstPress, Simulation.get(simID).display.keyReleasedFirstTime, onGround, maxGroundVelocity);
-            }
-        }
     }
     private double[] calculateGravity() {
         double sumaX = 0.0;
@@ -687,95 +425,58 @@ class Rigidbody {
                 double rSquared = (posX - Rigidbody.get(i).getPosX()) * (posX - Rigidbody.get(i).getPosX()) + (posY - Rigidbody.get(i).getPosY()) * (posY - Rigidbody.get(i).getPosY());
                 if (rSquared > 0.0) {
                     double r = Math.sqrt(rSquared);
-                    double magnitude = (GRAVITATIONAL_CONSTANT * Rigidbody.get(i).getMass()) / (rSquared);
+                    double magnitude = (sim.GRAVITATIONAL_CONSTANT * Rigidbody.get(i).getMass()) / (rSquared);
                     sumaX = sumaX + (magnitude / r) * (Rigidbody.get(i).getPosX() - posX);
                     sumaY = sumaY + (magnitude / r) * (Rigidbody.get(i).getPosY() - posY);
                 }
             }
         }
-        for (int i = 0; i < Point.num; i = i + 1) {
-            if (Point.get(i).simID != simID) continue;
-            double rSquared = (posX - Point.get(i).getX()) * (posX - Point.get(i).getX()) + (posY - Point.get(i).getY()) * (posY - Point.get(i).getY());
-            if (rSquared > 0.0) {
-                double r = Math.sqrt(rSquared);
-                double magnitude = (GRAVITATIONAL_CONSTANT * Point.get(i).getMass()) / (rSquared);
-                sumaX = sumaX + (magnitude / r) * (Point.get(i).getX() - posX);
-                sumaY = sumaY + (magnitude / r) * (Point.get(i).getY() - posY);
-            }
-        }
         return(new double[]{sumaX, sumaY});
     }
-    private void calculateAirResistance() {
-        double[] fD = new double[]{0.0, 0.0};
-        double torqueSum = 0.0;
-        if (airResistance) {
-            int length = xPoints.size();
-            double magnitude1 = Math.sqrt(vX * vX + vY * vY);
-            if (Double.isNaN(magnitude1)) magnitude1 = 0.0001;
-            double uX = vX / magnitude1;
-            double uY = vY / magnitude1;
-            if (Double.isNaN(uX)) uX = 0.0;
-            if (Double.isNaN(uY)) uY = 0.0;
-            double crossArea = 0.0;
-            for (int i = 0; i < length; i = i + 1) {
-                double nX = -(yPoints.get((i + 1) % length) - yPoints.get(i));
-                double nY = xPoints.get((i + 1) % length) - xPoints.get(i);
-                if (Double.isNaN(nX) || Double.isNaN(nY)) {
-                    nX = 0.0;
-                    nY = 0.0;
-                }
-                if (invertNormals) {
-                    nX = -nX;
-                    nY = -nY;
-                }
-                if (nX * uX + nY * uY >= 0.0) {
-                    crossArea = crossArea + Math.abs((xPoints.get((i + 1) % length) - xPoints.get(i)) * -uY + (yPoints.get((i + 1) % length) - yPoints.get(i)) * uX);
-                }
-            }
-            double magnitude2 = 0.5 * AIR_DENSITY * crossArea * DRAG_COEFFICIENT * magnitude1 * magnitude1;
-            fD = new double[]{-uX * magnitude2, -uY * magnitude2};
-            for (int i = 0; i < length; i = i + 1) {
-                double rPerpX = -yPoints.get(i);
-                double rPerpY = xPoints.get(i);
-                double r = Math.sqrt(rPerpX * rPerpX + rPerpY * rPerpY);
-                if (Double.isNaN(r)) r = 0.0;
-                double nX = -(yPoints.get((i + 1) % length) - yPoints.get(i));
-                double nY = xPoints.get((i + 1) % length) - xPoints.get(i);
-                if (Double.isNaN(nX) || Double.isNaN(nY)) {
-                    nX = 0.0;
-                    nY = 0.0;
-                }
-                if (invertNormals) {
-                    nX = -nX;
-                    nY = -nY;
-                }
-                if (nX * uX + nY * uY >= 0.0) {
-                    double torque = 0.5 * Math.abs((xPoints.get((i + 1) % length) - xPoints.get(i)) * -uY + (yPoints.get((i + 1) % length) - yPoints.get(i)) * uX) / crossArea;
-                    double perpForce1 = (fD[0] * rPerpX + fD[1] * rPerpY);
-                    double rPerpX2 = -yPoints.get((i + 1) % length);
-                    double rPerpY2 = xPoints.get((i + 1) % length);
-                    double perpForce2 = (fD[0] * rPerpX2 + fD[1] * rPerpY2);
-                    torque = torque * (perpForce1 + perpForce2);
-                    torqueSum = torqueSum + torque;
+    private void calculateRepulsion() {
+        double detectRadiusMultiplier = Math.sqrt(sim.REPULSE_RADIUS_MULTIPLIER);
+        double REPULSION_STRENGTH = sim.REPULSION_STRENGTH;
+        if (parentSoftbody != -1 && REPULSION_STRENGTH > 0.0) for (int i = 0; i < Softbody.num; i = i + 1) {
+            if (Softbody.get(i).simID == simID && i != parentSoftbody) {
+                double distanceToBodyX = posX - Softbody.get(i).cM[0];
+                double distanceToBodyY = posY - Softbody.get(i).cM[1];
+                double distanceToBody = Math.sqrt(distanceToBodyX * distanceToBodyX + distanceToBodyY * distanceToBodyY);
+                if (distanceToBody <= detectRadiusMultiplier * (geometry.getLargestDistance() +
+                        Softbody.get(i).getRadius())) {
+                    for (int j = 0; j < Softbody.get(i).size(); j++) {
+                        double dx = posX - Softbody.get(i).getMember(j).getPosX();
+                        double dy = posY - Softbody.get(i).getMember(j).getPosY();
+                        double distance = Math.sqrt(dx * dx + dy * dy);
+                        if (distance > 0.0) {
+                            double aMax = REPULSION_STRENGTH * (((Softbody.get(i).getMember(j).repulseRadius + repulseRadius) / distance) - 1.0);
+                            double aMagnitude = Math.max(0.0, aMax);
+                            if (aMagnitude > 0.0) {
+                                double a = aMagnitude / REPULSION_STRENGTH;
+                                double b = 1;
+                            }
+                            newaX += aMagnitude * (dx / distance);
+                            newaY += aMagnitude * (dy / distance);
+                        }
+                    }
                 }
             }
         }
-
-        double[] fB = new double[]{0.0, 0.0};
-        if (buoyancy) {
-            double magnitude1 = Math.sqrt(newaX * newaX + newaY * newaY);
-            if (Double.isNaN(magnitude1)) magnitude1 = 0.0;
-            double magnitude2 = AIR_DENSITY * magnitude1 * area;
-            fB[0] = magnitude2 * (-newaX / magnitude1);
-            fB[1] = magnitude2 * (-newaY / magnitude1);
+    }
+    private void calculateJointForceEffects() {
+        double[] sumOfForces = new double[3];
+        for (Joint joint : attachments) {
+            switch (joint.type) {
+                case Spring: {
+                    double[] result = joint.calculateSpringForce();
+                    sumOfForces[0] += result[0];
+                    sumOfForces[1] += result[1];
+                    sumOfForces[2] += result[2];
+                }
+            }
         }
-
-        double update = (fD[0] + fB[0]) / mass;
-        if (!Double.isNaN(update)) newaX += update;
-        update = (fD[1] + fB[1]) / mass;
-        if (!Double.isNaN(update)) newaY += update;
-        update = torqueSum / inertia;
-        if (!Double.isNaN(update)) newangularA += update;
+        newaX += sumOfForces[0] / mass;
+        newaY += sumOfForces[1] / mass;
+        newangularA += sumOfForces[2] / inertia;
     }
     public static boolean moveByMouse(double x, double y, boolean reset, boolean mousePressed, double dt, int simID) {
         boolean output = false;
@@ -791,7 +492,7 @@ class Rigidbody {
         flingX = (x - lastMouseX) / dt;
         flingY = (y - lastMouseY) / dt;
         double multiplier = Math.sqrt(flingX * flingX + flingY * flingY);
-        multiplier = Math.min(multiplier, MOUSE_SPEED_LIMIT) / multiplier;
+        multiplier = Math.min(multiplier, sim.MOUSE_SPEED_LIMIT) / multiplier;
         flingX = flingX * multiplier;
         if (Double.isNaN(flingX)) flingX = 0.0;
         flingY = flingY * multiplier;
@@ -807,7 +508,7 @@ class Rigidbody {
         currentMouseX = x;
         currentMouseY = y;
         boolean isInside = false;
-        if (pointInside(new double[]{currentMouseX, currentMouseY})) {
+        if (geometry.pointInside(new double[]{currentMouseX, currentMouseY})) {
             isInside = true;
             if (mousePressed) {
                 mouseHold = true;
@@ -824,62 +525,235 @@ class Rigidbody {
     }
     private void rotateAroundCenter(double dt) {
         if (!lockedRotation) {
-            double theta = angularV * dt;
-            double sin = Math.sin(theta);
-            double cos = Math.cos(theta);
-            for (int i = 0; i < xPoints.size(); i = i + 1) {
-                double x = xPoints.get(i);
-                double y = yPoints.get(i);
-                xPoints.set(i, x * cos - y * sin);
-                if (Double.isNaN(leftBoundBox) || xPoints.get(i) < leftBoundBox) {
-                    leftBoundBox = xPoints.get(i);
-                }
-                if (Double.isNaN(rightBoundBox) || xPoints.get(i) > rightBoundBox) {
-                    rightBoundBox = xPoints.get(i);
-                }
-                yPoints.set(i, y * cos + x * sin);
-                if (Double.isNaN(topBoundBox) || yPoints.get(i) < topBoundBox) {
-                    topBoundBox = yPoints.get(i);
-                }
-                if (Double.isNaN(bottomBoundBox) || yPoints.get(i) > bottomBoundBox) {
-                    bottomBoundBox = yPoints.get(i);
-                }
-                if (triangles.get(i).doesExist()) {
-                    triangles.get(i).rotate(theta);
-                }
-            }
+            geometry.rotateAroundCenter(angularV * dt);
         }
     }
 
-
-    private boolean isOnNormalSide(double[] point, int index1, int index2) {
-        double dotProduct = (yPoints.get(index1) - point[1]) * (xPoints.get(index2) - xPoints.get(index1));
-        dotProduct = dotProduct - (xPoints.get(index1) - point[0]) * (yPoints.get(index2) - yPoints.get(index1));
-        if ((dotProduct > 0.0 && invertNormals) || (dotProduct < 0.0 && !invertNormals)) return(true);
-        else return(false);
+    //joint related methods
+    public void springAttach(Rigidbody other, double SPRING_STRENGTH, double SPRING_DAMPING) {
+        double distance = Math.sqrt((other.posX - posX) * (other.posX - posX) + (other.posY - posY) * (other.posY - posY));
+        Joint joint1 = new Joint(this, other, new double[]{0.0, 0.0}, new double[]{0.0, 0.0},
+                distance, SPRING_STRENGTH, SPRING_DAMPING, 2.0);
+        Joint joint2 = new Joint(other, this, new double[]{0.0, 0.0}, new double[]{0.0, 0.0},
+                distance, SPRING_STRENGTH, SPRING_DAMPING, 2.0);
+        attachments.add(joint1);
+        other.attachments.add(joint2);
+        isAttached = true;
+        other.isAttached = true;
     }
-    private boolean pointInside(double[] point) {
-        double[] testPoint = new double[]{point[0] - posX, point[1] - posY};
-        int raycastCount = 0;
-        for (int i = 0; i < xPoints.size(); i = i + 1) {
-            double minX = xPoints.get(i);
-            int minXindex = i;
-            double maxX = xPoints.get((i + 1) % xPoints.size());
-            int maxXindex = (i + 1) % xPoints.size();
+    public void springAttachSoftbodyConstruction(Rigidbody other) {
+        boolean valid = true;
+        for (Joint spring : attachments) {
+            if (spring.type == JointType.Spring && spring.connection.ID == other.ID) {
+                valid = false;
+                break;
+            }
+        }
+        if (valid) {
+            double distance = Math.sqrt((other.posX - posX) * (other.posX - posX) + (other.posY - posY) * (other.posY - posY));
+            Joint joint1 = new Joint(this, other, new double[]{0.0, 0.0}, new double[]{0.0, 0.0},
+                    distance, 1.0, 1.0, 2.0);
+            Joint joint2 = new Joint(other, this, new double[]{0.0, 0.0}, new double[]{0.0, 0.0},
+                    distance, 1.0, 1.0, 2.0);
+            attachments.add(joint1);
+            other.attachments.add(joint2);
+            isAttached = true;
+            other.isAttached = true;
+        }
+    }
+
+    //joint methods related specifically to softbody construction and not used elsewhere
+    public void setAllSpringJoints(double HOOKE_SPRING_CONSTANT, double SPRING_DAMPING_COEFFICIENT, double SPRING_MIN_DIST_MULT, double SPRING_MAX_DIST_MULT) {
+        for (Joint joint : attachments) {
+            if (joint.type == JointType.Spring){
+                joint.SPRING_CONSTANT = HOOKE_SPRING_CONSTANT;
+                joint.SPRING_DAMPING = SPRING_DAMPING_COEFFICIENT;
+                joint.minDistMultiplier = SPRING_MIN_DIST_MULT;
+                joint.maxDistMultiplier = SPRING_MAX_DIST_MULT;
+            }
+        }
+    }
+    public int getAttachmentNum() {
+        if (parentSoftbody == -1) return(0);
+        int count = 0;
+        if (Softbody.get(parentSoftbody).members.contains(this)) {
+            for (Joint attachment : attachments) {
+                if (attachment.type == JointType.Spring &&
+                        Softbody.get(parentSoftbody).members.contains(attachment.connection)) count += 1;
+            }
+        }
+        return(count);
+    }
+    public Rigidbody getAttachment(int index) {
+        if (index >= 0 && index < getAttachmentNum() && Softbody.get(parentSoftbody).members.contains(this)) {
+            int count = 0;
+            for (Joint attachment : attachments) {
+                if (attachment.type == JointType.Spring &&
+                Softbody.get(parentSoftbody).members.contains(attachment.connection)) {
+                    if (count == index) return(attachment.connection);
+                    count += 1;
+                }
+            }
+        }
+        return(null);
+    }
+    public int getAttachmentInt(int index) {
+        if (index >= 0 && index < getAttachmentNum() && Softbody.get(parentSoftbody).members.contains(this)) {
+            int count = 0;
+            for (Joint attachment : attachments) {
+                if (attachment.type == JointType.Spring &&
+                        Softbody.get(parentSoftbody).members.contains(attachment.connection)) count += 1;
+                if (count == index) return(attachment.connection.ID);
+            }
+        }
+        return(-1);
+    }
+    public int getBoundaryAttachmentNum() {
+        if (parentSoftbody == -1) return(0);
+        int count = 0;
+        if (Softbody.get(parentSoftbody).boundaryMembers.contains(ID)) {
+            for (Joint attachment : attachments) {
+                if (attachment.type == JointType.Spring &&
+                Softbody.get(parentSoftbody).boundaryMembers.contains(attachment.connection.ID)) count += 1;
+            }
+        }
+        return(count);
+    }
+    public void generatePoints(double theta, double r, double[] borderX, double[] borderY, boolean invertNormals) {
+        int angleDivisions = 4;
+        boolean[] onBoundaryPoints = new boolean[angleDivisions];
+        boolean[] inShapePoints = new boolean[angleDivisions];
+        double[] x = new double[angleDivisions];
+        double[] y = new double[angleDivisions];
+        for (int i = 0; i < angleDivisions; i = i + 1) {
+            double angle = theta + ((2.0 * Math.PI) / angleDivisions) * i;
+            Triplet results = pointInsideBorderConstruct(posX + r * Math.cos(angle), posY + r * Math.sin(angle), borderX, borderY, invertNormals);
+            //first boolean is if the proposed corrected point is on the boundary, second coords is where the corrected point is
+            //third boolean is if the proposed point (before correction) is within the shape
+            onBoundaryPoints[i] = results.getFirstBoolean();
+            inShapePoints[i] = results.getThirdBoolean();
+            x[i] = results.getSecondDoubleArray()[0];
+            y[i] = results.getSecondDoubleArray()[1];
+            if (results.getFirstBoolean()) {
+                futureBoundary = true;
+                break;
+            }
+        }
+        ArrayList<Rigidbody> generatedPoints = new ArrayList<>();
+        if (!futureBoundary) for (int i = 0; i < angleDivisions; i = i + 1) {
+            if (inShapePoints[i]) {
+                Rigidbody generatedPoint = new Rigidbody(new Circle(Softbody.get(parentSoftbody).getPointRadius()),
+                        new double[]{x[i], y[i], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 1.0, Softbody.get(parentSoftbody).getColor(), simID);
+                Simulation.get(simID).physicsObjects.add(new PhysicsObject(generatedPoint));
+                springAttach(generatedPoint, 1.0, 1.0);
+                Softbody.get(parentSoftbody).addMember(generatedPoint, futureBoundary);
+                generatedPoints.add(generatedPoint);
+            }
+        }
+        for (Rigidbody generatedPoint : generatedPoints) {
+            generatedPoint.generatePoints(mod(theta - Math.PI,2.0 * Math.PI), r, borderX, borderY, invertNormals);
+        }
+    }
+    private Triplet pointInsideBorderConstruct(double x, double y, double[] borderX, double[] borderY, boolean invertNormals) {
+        int count = pointInsideConstruct(x, y, borderX, borderY);
+        if (count % 2 == 0) {
+            double distance = (x - 50.0) * (x - 50.0) + (y - 20.0) * (y - 20.0);
+            distance = Math.sqrt(distance);
+            if (distance < 20.0) {
+                double a = 1;
+            }
+        }
+        //if the point is not inside, then put it on the closest edge point
+        boolean onBoundary = count % 2 == 0;
+        boolean inShape = true;
+        double newx = x;
+        double newy = y;
+        double maxDot = Double.NaN;
+        if (onBoundary) {
+            inShape = false;
+            for (int i = 0; i < borderX.length; i = i + 1) {
+                double nX = -(borderY[(i + 1) % borderX.length] - borderY[i]);
+                double nY = borderX[(i + 1) % borderX.length] - borderX[i];
+                double magnitude = Math.sqrt(nX * nX + nY * nY);
+                nX = nX / magnitude;
+                nY = nY / magnitude;
+                if (Double.isNaN(nX) || Double.isNaN(nY)) {
+                    nX = 0.0;
+                    nY = 0.0;
+                }
+                if (invertNormals) {
+                    nX = -nX;
+                    nY = -nY;
+                }
+                double orthoDot = x * -nY + y * nX;
+                double orthoDotMin = borderX[i] * -nY + borderY[i] * nX;
+                double orthoDotMax = borderX[(i + 1) % borderX.length] * -nY + borderY[(i + 1) % borderX.length] * nX;
+                if (orthoDotMax < orthoDotMin) {
+                    double temp = orthoDotMin;
+                    orthoDotMin = orthoDotMax;
+                    orthoDotMax = temp;
+                }
+                if (orthoDot < orthoDotMax && orthoDot > orthoDotMin) {
+                    double dot = (x - borderX[i]) * nX + (y - borderY[i]) * nY;
+                    if (dot > 0.0 && (Double.isNaN(maxDot) || dot < maxDot)) {
+                        newx = newx - dot * nX;
+                        newy = newy - dot * nY;
+                        maxDot = dot;
+                        onBoundary = true;
+                    }
+                }
+            }
+        }
+        x = newx;
+        y = newy;
+
+        //check if the point has already been created (temporary, later going to use local geometry to determine rather than distance check)
+        boolean check = false;
+        if (inShape || onBoundary) for (int i = 0; i < Rigidbody.num; i = i + 1) {
+            if (i != ID && Rigidbody.get(i).parentSoftbody == parentSoftbody && Rigidbody.get(i).simID == simID) {
+                double distance = (x - Rigidbody.get(i).posX) * (x - Rigidbody.get(i).posX) + (y - Rigidbody.get(i).posY) * (y - Rigidbody.get(i).posY);
+                distance = Math.sqrt(distance);
+                if (distance < Softbody.get(parentSoftbody).getPointRadius() || (onBoundary && distance < 2.0 * Softbody.get(parentSoftbody).getPointRadius())) {
+                    inShape = false;
+                    check = true;
+                    break;
+                }
+            }
+        }
+        if (onBoundary) {
+            double a = 1;
+        }
+        //if (onBoundary && !check) inShape = true;
+
+        return(new Triplet(onBoundary, new double[]{x, y}, inShape));
+    }
+    private int pointInsideConstruct(double x, double y, double[] borderX, double[] borderY) {
+        int count = 0;
+        for (int i = 0; i < borderX.length; i = i + 1) {
+            double minX = borderX[i];
+            double maxX = borderX[(i + 1) % borderX.length];
             if (maxX < minX) {
-                double temp = minX;
-                int tempIndex = minXindex;
                 minX = maxX;
-                minXindex = maxXindex;
-                maxX = temp;
-                maxXindex = tempIndex;
+                maxX = borderX[i];
             }
-            if (testPoint[0] > minX && testPoint[0] < maxX && ((yPoints.get(maxXindex) - yPoints.get(minXindex)) / (maxX - minX)) * (testPoint[0] - maxX) + yPoints.get(maxXindex) > testPoint[1]) {
-                raycastCount = raycastCount + 1;
+            double minY = borderY[i];
+            double maxY = borderY[(i + 1) % borderX.length];
+            if (maxY < minY) {
+                minY = maxY;
+                maxY = borderY[i];
+            }
+            if (x >= minX && x <= maxX) {
+                if (y < minY) count = count + 1;
+                else if (borderX[(i + 1) % borderX.length] - borderX[i] != 0.0) {
+                    double m = (borderY[(i + 1) % borderX.length] - borderY[i]) / (borderX[(i + 1) % borderX.length] - borderX[i]);
+                    double b = borderY[i] - m * (borderX[i]);
+                    if (m * x + b > y) count = count + 1;
+                }
             }
         }
-        return (raycastCount % 2 == 1);
+        return(count);
     }
+
     public void lockRotation(boolean lockRotation) {
         lockedRotation = lockRotation;
     }
@@ -894,23 +768,31 @@ class Rigidbody {
             else return(tempResult);
         }
     }
+    public static double mod(double a, double b) {
+        if (a >= 0) return(a % b);
+        else {
+            double tempResult = b - (-a % b);
+            if (tempResult == b) return(0);
+            else return(tempResult);
+        }
+    }
 
     public static Rigidbody get(int index) {
         return(rigidbodies.get(index));
     }
-    public int[] getDrawX(double shiftX, double resolutionScaling, double resolutionCenterX, double pixelShiftX) {
-        int[] x = new int[xPoints.size()];
-        for (int i = 0; i < xPoints.size(); i = i + 1) {
-            x[i] = (int) Math.round(((xPoints.get(i) + posX - shiftX - resolutionCenterX) / resolutionScaling) + resolutionCenterX + pixelShiftX);
-        }
-        return(x);
+
+    public Triplet getDraw(double shiftX, double resolutionCenterX, double pixelShiftX,
+                           double shiftY, double resolutionCenterY, double pixelShiftY, double resolutionScaling) {
+        return(geometry.getDrawInt(shiftX, resolutionCenterX, pixelShiftX, shiftY, resolutionCenterY,
+                pixelShiftY, resolutionScaling));
     }
-    public int[] getDrawY(double shiftY, double resolutionScaling, double resolutionCenterY, double pixelShiftY) {
-        int[] y = new int[yPoints.size()];
-        for (int i = 0; i < yPoints.size(); i = i + 1) {
-            y[i] = (int) Math.round(((yPoints.get(i) + posY - shiftY - resolutionCenterY) / resolutionScaling) + resolutionCenterY + pixelShiftY);
-        }
-        return(y);
+    public void setMovingMotion(double[] movingMotion) {
+        vX = movingMotion[0];
+        vY = movingMotion[1];
+        initialExternalForces[0] = movingMotion[2];
+        initialExternalForces[1] = movingMotion[3];
+        angularV = movingMotion[4];
+        angularA = movingMotion[5];
     }
     public double getPosX() {
         return(posX);
@@ -924,17 +806,17 @@ class Rigidbody {
     public void setPosY(double posY) {
         this.posY = posY;
     }
-    public double getCX() {
-        return(cX);
-    }
-    public double getCY() {
-        return(cY);
-    }
     public double getVX() {
         return(vX);
     }
     public double getVY() {
         return(vY);
+    }
+    public void setVX(double vX) {
+        this.vX = vX;
+    }
+    public void setVY(double vY) {
+        this.vY = vY;
     }
     public double getAX() {
         return(aX);
@@ -942,55 +824,45 @@ class Rigidbody {
     public double getAY() {
         return(aY);
     }
+    public void setAX(double aX) {
+        this.aX = aX;
+    }
+    public void setAY(double aY) {
+        this.aY = aY;
+    }
+    public void changeAX(double update) {
+        newaX += update;
+    }
+    public void changeAY(double update) {
+        newaY += update;
+    }
     public double getAngularV() {
         return(angularV);
+    }
+    public void setAngularV(double angularV) {
+        this.angularV = angularV;
     }
     public double getAngularA() {
         return(angularA);
     }
-    public Color getColor() {
-        return(color);
-    }
-    public int getNumPoints() {
-        if (xPoints.size() == yPoints.size()) return(xPoints.size());
-        else {
-            System.out.println("xPoints and yPoints do not match in length");
-            return (-1);
-        }
+    public void setAngularA(double angularA) {
+        this.angularA = angularA;
     }
     public int getID() {
         return(ID);
     }
-    public double getXPoints(int index) {
-        return(xPoints.get(index));
-    }
-    public ArrayList<Double> getXPoints() {
-        return(xPoints);
-    }
-    public double getYPoints(int index) {
-        return(yPoints.get(index));
-    }
-    public ArrayList<Double> getYPoints() {
-        return(yPoints);
-    }
-    public ArrayList<Triangle> getTriangles() {
-        return(triangles);
-    }
 
     public double getMass() {
         return(mass);
+    }
+    public void setRepulseRadius(double REPULSE_RADIUS_MULTIPLIER) {
+        repulseRadius = REPULSE_RADIUS_MULTIPLIER * geometry.getLargestDistance();
     }
     public double getInertia() {
         return(inertia);
     }
     public double getArea() {
         return(area);
-    }
-    public double getLargestDistance() {
-        return(largestDistance);
-    }
-    public boolean isAABB(double leftBoundBox, double rightBoundBox, double topBoundBox, double bottomBoundBox)  {
-        return (this.leftBoundBox + posX <= rightBoundBox && leftBoundBox <= this.rightBoundBox + posX && this.topBoundBox + posY <= bottomBoundBox && topBoundBox <= this.bottomBoundBox + posY);
     }
     public boolean isMovable() {
         return(isMovable);
@@ -999,134 +871,122 @@ class Rigidbody {
         isMovable = a;
     }
 
+    private static int convertSoftbodyEdge(int index) {
+        return(-index - 2);
+    }
     public static double getPosX(int index) {
-        if (index >= 0) return(Rigidbody.get(index).getPosX());
-        else if (index <= -2 && mod(index, 2) == 0) return(Point.get((-index / 2) - 1).getX());
-        else if (index <= -2 && mod(index, 2) == 1) {
+        Rigidbody rigidbody = null;
+        if (index >= 0) rigidbody = Rigidbody.get(index);
+        else if (index <= -2) { //handle later
             System.out.println("Calling the position of a softbody edge collision should never happen.");
-            return(Double.NaN);
         }
-        else return(Double.NaN);
+        return(rigidbody.getPosX());
     }
     public static double getPosY(int index) {
-        if (index >= 0) return(Rigidbody.get(index).getPosY());
-        else if (index <= -2 && mod(index, 2) == 0) return(Point.get((-index / 2) - 1).getY());
-        else if (index <= -2 && mod(index, 2) == 1) {
-            System.out.println("This has to be altered specifically.");
-            return(Double.NaN);
+        Rigidbody rigidbody = null;
+        if (index >= 0) rigidbody = Rigidbody.get(index);
+        else if (index <= -2) { //handle later
+            System.out.println("Calling the position of a softbody edge collision should never happen.");
         }
-        else return(Double.NaN);
+        return(rigidbody.getPosY());
     }
     public static double getVX(int index) {
-        if (index >= 0) return(Rigidbody.get(index).getVX());
-        else if (index <= -2 && mod(index, 2) == 0) return(Point.get((-index / 2) - 1).getVX());
-        else if (index <= -2 && mod(index, 2) == 1) {
-            int softbodyIndex = Point.get((-index - 1) / 2 - 1).parentSoftbody;
+        Rigidbody rigidbody = null;
+        if (index >= 0) rigidbody = Rigidbody.get(index);
+        else if (index <= -2) {
+            int softbodyIndex = Rigidbody.get(convertSoftbodyEdge(index)).parentSoftbody;
             int size = Softbody.get(softbodyIndex).boundarySize();
-            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf((-index - 1) / 2 - 1);
-            double val1 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).getVX();
-            double val2 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).getVX();
+            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf(convertSoftbodyEdge(index));
+            double val1 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).getVX();
+            double val2 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).getVX();
             return(0.5 * (val1 + val2));
         }
         else return(0.0);
+        return(rigidbody.getVX());
     }
     public static double getVY(int index) {
-        if (index >= 0) return(Rigidbody.get(index).getVY());
-        else if (index <= -2 && mod(index, 2) == 0) return(Point.get((-index / 2) - 1).getVY());
-        else if (index <= -2 && mod(index, 2) == 1) {
-            int softbodyIndex = Point.get((-index - 1) / 2 - 1).parentSoftbody;
+        Rigidbody rigidbody = null;
+        if (index >= 0) rigidbody = Rigidbody.get(index);
+        else if (index <= -2) {
+            int softbodyIndex = Rigidbody.get(convertSoftbodyEdge(index)).parentSoftbody;
             int size = Softbody.get(softbodyIndex).boundarySize();
-            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf((-index - 1) / 2 - 1);
-            double val1 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).getVY();
-            double val2 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).getVY();
+            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf(convertSoftbodyEdge(index));
+            double val1 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).getVY();
+            double val2 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).getVY();
             return(0.5 * (val1 + val2));
         }
         else return(0.0);
+        return(rigidbody.getVY());
     }
     public static double getAX(int index) {
-        if (index >= 0) return(Rigidbody.get(index).getVX());
-        else if (index <= -2 && mod(index, 2) == 0) return(Point.get((-index / 2) - 1).getVX());
+        Rigidbody rigidbody = null;
+        if (index >= 0) rigidbody = Rigidbody.get(index);
         else if (index <= -2 && mod(index, 2) == 1) {
-            int softbodyIndex = Point.get((-index - 1) / 2 - 1).parentSoftbody;
+            int softbodyIndex = Rigidbody.get(convertSoftbodyEdge(index)).parentSoftbody;
             int size = Softbody.get(softbodyIndex).boundarySize();
-            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf((-index - 1) / 2 - 1);
-            double val1 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).getAX();
-            double val2 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).getAX();
+            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf(convertSoftbodyEdge(index));
+            double val1 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).getAX();
+            double val2 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).getAX();
             return(0.5 * (val1 + val2));
         }
         else return(0.0);
+        return(rigidbody.getAX());
     }
     public static double getAY(int index) {
-        if (index >= 0) return(Rigidbody.get(index).getVY());
-        else if (index <= -2 && mod(index, 2) == 0) return(Point.get((-index / 2) - 1).getVY());
+        Rigidbody rigidbody = null;
+        if (index >= 0) rigidbody = Rigidbody.get(index);
         else if (index <= -2 && mod(index, 2) == 1) {
-            int softbodyIndex = Point.get((-index - 1) / 2 - 1).parentSoftbody;
+            int softbodyIndex = Rigidbody.get(convertSoftbodyEdge(index)).parentSoftbody;
             int size = Softbody.get(softbodyIndex).boundarySize();
-            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf((-index - 1) / 2 - 1);
-            double val1 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).getAY();
-            double val2 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).getAY();
+            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf(convertSoftbodyEdge(index));
+            double val1 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).getAY();
+            double val2 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).getAY();
             return(0.5 * (val1 + val2));
         }
         else return(0.0);
+        return(rigidbody.getAY());
     }
     public static double getAngularV(int index) {
-        if (index >= 0) return(Rigidbody.get(index).getAngularV());
-        else if (index <= -2 && mod(index, 2) == 0) return(Point.get(-index / 2 - 1).getAngularV());
+        Rigidbody rigidbody = null;
+        if (index >= 0) rigidbody = Rigidbody.get(index);
         else return(0.0);
-    }
-    public void changeX(double update) {
-        otherUpdatePosX += update;
-    }
-    public void changeY(double update) {
-        otherUpdatePosY += update;
-    }
-    public void changeVX(double update) {
-        otherUpdateVX += update;
-        vUpdateCount += 1;
-    }
-    public void changeVY(double update) {
-        otherUpdateVY += update;
-    }
-    public void changeAX(double update) {
-        otherUpdateAX += update;
-    }
-    public void changeAY(double update) {
-        otherUpdateAY += update;
+        return(rigidbody.getAngularV());
     }
     public static double getMass(int index) {
-        if (index >= 0) return(Rigidbody.get(index).getMass());
-        else if (index <= -2 && mod(index, 2) == 0) return(Point.get((-index / 2) - 1).getMass());
-        else if (index <= -2 && mod(index, 2) == 1) {
-            int softbodyIndex = Point.get((-index - 1) / 2 - 1).parentSoftbody;
+        Rigidbody rigidbody = null;
+        if (index >= 0) rigidbody = Rigidbody.get(index);
+        else if (index <= -2) {
+            int softbodyIndex = Rigidbody.get(convertSoftbodyEdge(index)).parentSoftbody;
             int size = Softbody.get(softbodyIndex).boundarySize();
-            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf((-index - 1) / 2 - 1);
-            double val1 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).getMass();
-            double val2 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).getMass();
+            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf(convertSoftbodyEdge(index));
+            double val1 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).getMass();
+            double val2 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).getMass();
             return(0.5 * (val1 + val2));
         }
-        else return(Double.NaN);
+        if (rigidbody == null) {
+            double a = 1;
+        }
+        return(rigidbody.getMass());
     }
     public static double getInertia(int index) {
-        if (index >= 0) return(Rigidbody.get(index).getInertia());
-        else if (index <= -2 && mod(index, 2) == 0) return(Point.get((-index / 2) - 1).getInertia());
-        else if (index <= -2 && mod(index, 2) == 1) {
-            int softbodyIndex = Point.get((-index - 1) / 2 - 1).parentSoftbody;
+        Rigidbody rigidbody = null;
+        if (index >= 0) rigidbody = Rigidbody.get(index);
+        else if (index <= -2) {
+            int softbodyIndex = Rigidbody.get(convertSoftbodyEdge(index)).parentSoftbody;
             int size = Softbody.get(softbodyIndex).boundarySize();
-            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf((-index - 1) / 2 - 1);
-            double val1 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).getInertia();
-            double val2 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).getInertia();
+            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf(convertSoftbodyEdge(index));
+            double val1 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).getInertia();
+            double val2 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).getInertia();
             return(0.5 * (val1 + val2));
         }
-        else return(Double.NaN);
+        return(rigidbody.getInertia());
     }
     public static Material getMaterial(int index) {
         try {
             Material returnMaterial;
             if (index >= 0) returnMaterial = Simulation.get(Rigidbody.get(index).simID).getObject("Rigidbody", index).material;
-            else if (index <= -2 && mod(index, 2) == 0) returnMaterial = Simulation.get(Point.get((-index / 2) - 1).simID).getObject("Point", (-index / 2) - 1).material;
-            else if (index <= -2 && mod(index, 2) == 1) {
-                int tempIndex = (-index - 1) / 2 - 1;
-                returnMaterial = Simulation.get(Point.get(tempIndex).simID).getObject("Point", tempIndex).material;
+            else if (index <= -2) {
+                returnMaterial = Simulation.get(Softbody.get(index).simID).getObject("Softbody", index).material;
             }
             else returnMaterial = Simulation.defaultMaterial;
             if (returnMaterial != null) return (returnMaterial);
@@ -1147,25 +1007,19 @@ class Rigidbody {
             if (adoptOnlyOtherSurface) return(a);
             else return(Math.sqrt((a * a + b * b) * 0.5));
         }
-        else if (index <= -2 && mod(index, 2) == 0) {
-            double a = Point.get((-index / 2) - 1).COEFFICIENT_OF_RESTITUTION;
-            double b = COEFFICIENT_OF_RESTITUTION;
-            if (adoptOnlyOtherSurface) return(a);
-            else return(Math.sqrt((a * a + b * b) * 0.5));
-        }
-        else if (index <= -2 && mod(index, 2) == 1) {
-            int softbodyIndex = Point.get((-index - 1) / 2 - 1).parentSoftbody;
+        else if (index <= -2) {
+            int softbodyIndex = Rigidbody.get(convertSoftbodyEdge(index)).parentSoftbody;
             int size = Softbody.get(softbodyIndex).boundarySize();
-            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf((-index - 1) / 2 - 1);
-            double val1 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).COEFFICIENT_OF_RESTITUTION;
-            double val2 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).COEFFICIENT_OF_RESTITUTION;
+            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf(convertSoftbodyEdge(index));
+            double val1 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).COEFFICIENT_OF_RESTITUTION;
+            double val2 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).COEFFICIENT_OF_RESTITUTION;
             double a = 0.5 * (val1 + val2);
             double b = COEFFICIENT_OF_RESTITUTION;
             if (adoptOnlyOtherSurface) return(a);
             else return(Math.sqrt((a * a + b * b) * 0.5));
         }
         else {
-            double a = Simulation.get(simID).COEFFICIENT_OF_RESTITUTION;
+            double a = sim.COEFFICIENT_OF_RESTITUTION;
             double b = COEFFICIENT_OF_RESTITUTION;
             if (adoptOnlyOtherSurface) return(a);
             else return(Math.sqrt((a * a + b * b) * 0.5));
@@ -1176,29 +1030,24 @@ class Rigidbody {
             if (adoptOnlyOtherSurface) return(Rigidbody.get(index).COEFFICIENT_OF_FRICTION);
             else return((Rigidbody.get(index).COEFFICIENT_OF_FRICTION + COEFFICIENT_OF_FRICTION) * 0.5);
         }
-        else if (index <= -2 && mod(index, 2) == 0) {
-            if (adoptOnlyOtherSurface) return(Point.get((-index / 2) - 1).COEFFICIENT_OF_FRICTION);
-            else return((Point.get((-index / 2) - 1).COEFFICIENT_OF_FRICTION + COEFFICIENT_OF_FRICTION) * 0.5);
-        }
-        else if (index <= -2 && mod(index, 2) == 1) {
-            int softbodyIndex = Point.get((-index - 1) / 2 - 1).parentSoftbody;
+        else if (index <= -2) {
+            int softbodyIndex = Rigidbody.get(convertSoftbodyEdge(index)).parentSoftbody;
             int size = Softbody.get(softbodyIndex).boundarySize();
-            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf((-index - 1) / 2 - 1);
-            double val1 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).COEFFICIENT_OF_FRICTION;
-            double val2 = Point.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).COEFFICIENT_OF_FRICTION;
+            int edgeIndex = Softbody.get(softbodyIndex).boundaryMembers.indexOf(convertSoftbodyEdge(index));
+            double val1 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get(edgeIndex)).COEFFICIENT_OF_FRICTION;
+            double val2 = Rigidbody.get(Softbody.get(softbodyIndex).boundaryMembers.get((edgeIndex + 1) % size)).COEFFICIENT_OF_FRICTION;
             double a = 0.5 * (val1 + val2);
             if (adoptOnlyOtherSurface) return(a);
             else return(0.5 * (a + COEFFICIENT_OF_FRICTION));
         }
         else {
             if (adoptOnlyOtherSurface) return(Simulation.get(simID).COEFFICIENT_OF_FRICTION);
-            else return(Simulation.get(simID).COEFFICIENT_OF_FRICTION + COEFFICIENT_OF_FRICTION * 0.5);
+            else return(sim.COEFFICIENT_OF_FRICTION + COEFFICIENT_OF_FRICTION * 0.5);
         }
     }
     public static boolean getIsMovable(int index) {
         if (index >= 0) return(Rigidbody.get(index).isMovable());
-        else if (index <= -2 && mod(index, 2) == 0) return(Point.get((-index / 2) - 1).isMovable());
-        else if (index <= -2 && mod(index, 2) == 1) return(Point.get(((- index - 1) / 2) - 1).isMovable());
         else return(false);
     }
 }
+

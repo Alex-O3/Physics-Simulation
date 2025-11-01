@@ -24,7 +24,6 @@ public class Main {
             try {
                 if (time < timeStep) Thread.sleep(timeStep);
                 time = sim.stepToNextFrame(dt, 5);
-                //sim.getObject(151).setAngularMovement(new double[]{-Math.PI, 0.0});
             }
             catch (Exception e) {
                 System.out.println(e);
