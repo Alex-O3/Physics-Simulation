@@ -24,13 +24,23 @@ Timeline: What is not pushed but is completed is planned to be pushed in the nex
 
 
 Demos Branch: This branch of the project acts as a branch to demo the features of the simulation. Typing in one of the following commands into the prompt interface will produce the following results -
+
 "Demo1": Showcases the first demo with an immovable object and rigidbodies bouncing around. No additional features activated.
+
 "Demo2": Showcases friction between sliding blocks.
+
 "Demo3": Showcases the same as the "Demo1" but with air resistance turned on. Buoyancy is a derelict feature that used to be in this demo, but was removed.
+
 "Demo4": Showcases universal gravitation between circle rigidbodies with orbits.
+
 "Demo5": Showcases one-sided face objects and how they interact with a variety of rigidbodies with different properties and geometries.
+
 "Demo6": Showcases springs being used to form ropes prior to springs being made solid in future updates.
+
 "Demo7": Showcases pressure-spring and spring-mass softbodies and their ability to collide with other rigidbodies (later replaced with solid joint collisions).
+
 "Demo8": Showcases the two types of shape-match softbodies and the repulsive effect between softbodies to give more realistic looking softbody collisions.
+
 "Demo9": Showcases the player controller mechanics. Use WASD.
+
 "Demo10": Showcases an optimization stress test with 2001 objects.
