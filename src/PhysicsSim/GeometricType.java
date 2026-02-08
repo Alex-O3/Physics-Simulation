@@ -40,7 +40,7 @@ abstract class GeometricType {
         return(largestDistance);
     }
     abstract boolean findCollisions(GeometricType otherGeometry);
-    abstract boolean findCollisions(Softbody softbody);
+    abstract boolean findCollisions(Joint solidJoint);
     abstract boolean checkForCollisionsWall();
     abstract void rotateAroundCenter(double theta);
     abstract boolean pointInside(double[] point);

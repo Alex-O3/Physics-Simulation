@@ -3,6 +3,7 @@ import java.awt.event.*;
 import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.Arrays;
 
 class Display extends JPanel implements MouseListener, MouseMotionListener, MouseWheelListener, KeyListener {
     public final int simID;
@@ -10,6 +11,7 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
     public double debugVectorScaling = 0.001;
     public boolean debugBounds = false;
     public boolean debugRadius = false;
+    public boolean showCircleRotation = false;
     public final JLabel fps = new JLabel();
 
     public boolean mouse = false;
@@ -103,12 +105,18 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
     @Override
     public void paintComponent(Graphics g) {
         try {
-            if (Simulation.get(simID).physicsObjects.isEmpty()) return;
+            if (Simulation.get(simID).physicsObjects.isEmpty() && Simulation.get(simID).hitboxes.isEmpty()) return;
             super.paintComponent(g);
             for (int i = 0; i < Rigidbody.num; i++) {
                 Rigidbody rigidbody = Rigidbody.get(i);
                 if (rigidbody == null || !rigidbody.draw) continue;
-                Material material = Simulation.get(simID).getObject("Rigidbody", i).material;
+                Material material;
+                try {
+                    material = Simulation.get(simID).getObject("Rigidbody", i).material;
+                }
+                catch (Exception e) {
+                    material = null;
+                }
                 if (material != null && material.name.contains("Player")) {
                     playerLock = true;
                     resolutionCenterX = rigidbody.getPosX();
@@ -131,11 +139,10 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
                     case Circle: {
                         int radius = (int) (rigidbody.geometry.getLargestDistance() / resolutionScaling);
                         g.fillOval(drawInformation.getSecondIntArray()[0] - radius, drawInformation.getSecondIntArray()[1] - radius, 2 * radius, 2 * radius);
+                        Circle circle = (Circle) rigidbody.geometry;
+                        if (showCircleRotation) g.drawLine(convertX(rigidbody.getPosX()), convertY(rigidbody.getPosY()),
+                                convertX(rigidbody.getPosX() + circle.angularPosTest[0]), convertY(rigidbody.getPosY() + circle.angularPosTest[1]));
                     }
-                }
-                for (Joint joint : rigidbody.attachments) {
-                    g.drawLine(convertX(rigidbody.getPosX() + joint.offsetFromCMParent[0]), convertY(rigidbody.getPosY() + joint.offsetFromCMParent[1]),
-                            convertX(joint.connection.getPosX() + joint.offsetFromCMOther[0]), convertY(joint.connection.getPosY() + joint.offsetFromCMOther[1]));
                 }
 
                 //draw center of mass unless that drawing would be larger than the shape
@@ -158,35 +165,61 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
                             convertY(rigidbody.getPosY() + rigidbody.getAY() * debugVectorScaling));
                 }
                 g.setColor(Color.red);
-                if (debugBounds) g.drawRect(convertX(rigidbody.geometry.leftBoundBox + rigidbody.getPosX()),
-                        convertY(rigidbody.geometry.topBoundBox + rigidbody.getPosY()),
-                        (int) ((rigidbody.geometry.rightBoundBox - rigidbody.geometry.leftBoundBox) / resolutionScaling),
-                        (int) ((rigidbody.geometry.bottomBoundBox - rigidbody.geometry.topBoundBox) / resolutionScaling));
-                g.setColor(Color.red);
                 if (debugRadius) g.drawOval(convertX(rigidbody.getPosX() - rigidbody.geometry.getLargestDistance()),
                         convertY(rigidbody.getPosY() - rigidbody.geometry.getLargestDistance()),
                         (int) (2.0 * rigidbody.geometry.getLargestDistance() / resolutionScaling),
                         (int) (2.0 * rigidbody.geometry.getLargestDistance() / resolutionScaling));
             }
+            for (int i = 0; i < Rigidbody.num; i++) {
+                Rigidbody rigidbody = Rigidbody.get(i);
+                if (rigidbody == null || !rigidbody.draw) continue;
+                g.setColor(rigidbody.geometry.getColor().darker());
+                for (Joint joint : rigidbody.attachments) {
+                    double[] pos1 = new double[]{joint.parent.getPosX() + joint.offsetFromCMParent[0],joint.parent.getPosY() + joint.offsetFromCMParent[1]};
+                    double[] pos2 = new double[]{joint.connection.getPosX() + joint.offsetFromCMOther[0], joint.connection.getPosY() + joint.offsetFromCMOther[1]};
 
-            if (debugBounds || debugRadius) for (int i = 0; i < Softbody.num; i++) {
+                    if (joint.isSolid()) {
+                        double lineThickness = Simulation.get(simID).solidJointCollisionLineThickness;
+                        double mag = Math.sqrt((pos1[0] - pos2[0]) * (pos1[0] - pos2[0]) + (pos1[1] - pos2[1]) * (pos1[1] - pos2[1]));
+                        double[] n = new double[]{-(pos2[1] - pos1[1]) / mag, (pos2[0] - pos1[0]) / mag};
+                        int[] x = new int[]{convertX(pos1[0] + lineThickness * n[0]), convertX(pos1[0] - lineThickness * n[0]), convertX(pos2[0] - lineThickness * n[0]), convertX(pos2[0] + lineThickness * n[0])};
+                        int[] y = new int[]{convertY(pos1[1] + lineThickness * n[1]), convertY(pos1[1] - lineThickness * n[1]), convertY(pos2[1] - lineThickness * n[1]), convertY(pos2[1] + lineThickness * n[1])};
+                        g.fillPolygon(x, y, 4);
+                    }
+                    else {
+                        g.drawLine(convertX(pos1[0]), convertY(pos1[1]), convertX(pos2[0]), convertY(pos2[1]));
+                        g.fillOval(convertX(pos1[0]) - 5, convertY(pos1[1]) - 5, 10, 10);
+                    }
+                }
+            }
+            for (int i = 0; i < Rigidbody.compoundNum(); i++) {
+                g.setColor(Color.black);
+                g.fillOval(convertX(Rigidbody.getCompound(i).cM[0]) - 5, convertY(Rigidbody.getCompound(i).cM[1]) - 5, 10, 10);
+            }
+
+            if (debugRadius) for (int i = 0; i < Softbody.num; i++) {
                 Softbody softbody = Softbody.get(i);
                 g.setColor(Color.red);
-                if (debugBounds) g.drawRect(convertX(softbody.minX), convertY(softbody.minY),
-                        (int) ((softbody.maxX - softbody.minX) / resolutionScaling),
-                        (int) ((softbody.maxY - softbody.minY) / resolutionScaling));
-                if (debugRadius) {
-                    double repulse_radius_multiplier = Math.sqrt(Simulation.get(simID).REPULSE_RADIUS_MULTIPLIER);
-                    g.drawOval(convertX(softbody.cM[0] - softbody.getRadius()),
-                            convertY(softbody.cM[1] - softbody.getRadius()),
-                            (int) (2.0 * softbody.getRadius() / resolutionScaling),
-                            (int) (2.0 * softbody.getRadius() / resolutionScaling));
-                    g.setColor(Color.cyan);
-                    g.drawOval(convertX(softbody.cM[0] - repulse_radius_multiplier * softbody.getRadius()),
-                            convertY(softbody.cM[1] - repulse_radius_multiplier * softbody.getRadius()),
-                            (int) (2.0 * repulse_radius_multiplier * softbody.getRadius() / resolutionScaling),
-                            (int) (2.0 * repulse_radius_multiplier * softbody.getRadius() / resolutionScaling));
+                double repulse_radius_multiplier = Math.sqrt(Simulation.get(simID).REPULSE_RADIUS_MULTIPLIER);
+                g.drawOval(convertX(softbody.cM[0] - softbody.getRadius()),
+                        convertY(softbody.cM[1] - softbody.getRadius()),
+                        (int) (2.0 * softbody.getRadius() / resolutionScaling),
+                        (int) (2.0 * softbody.getRadius() / resolutionScaling));
+                g.setColor(Color.cyan);
+                g.drawOval(convertX(softbody.cM[0] - repulse_radius_multiplier * softbody.getRadius()),
+                        convertY(softbody.cM[1] - repulse_radius_multiplier * softbody.getRadius()),
+                        (int) (2.0 * repulse_radius_multiplier * softbody.getRadius() / resolutionScaling),
+                        (int) (2.0 * repulse_radius_multiplier * softbody.getRadius() / resolutionScaling));
+            }
 
+            //drawing bounding boxes
+            if (debugBounds) {
+                g.setColor(Color.red);
+                if (Simulation.get(simID).isSAPvsBVH) for (AABBox aabb : Simulation.get(simID).getSAPCell(0, 0).aabbs) {
+                    g.drawRect(convertX(aabb.minX.value), convertY(aabb.minY.value), (int) ((aabb.maxX.value - aabb.minX.value) / resolutionScaling), (int) ((aabb.maxY.value - aabb.minY.value) / resolutionScaling));
+                }
+                else for (AABBox aabb : Simulation.get(simID).BVHtrees.get(0).aabbs) {
+                    g.drawRect(convertX(aabb.minX.value), convertY(aabb.minY.value), (int) ((aabb.maxX.value - aabb.minX.value) / resolutionScaling), (int) ((aabb.maxY.value - aabb.minY.value) / resolutionScaling));
                 }
             }
 

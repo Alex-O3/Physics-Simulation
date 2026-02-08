@@ -1,6 +1,6 @@
 package PhysicsSim;
 
-public enum RigidbodyGeometries {
+enum RigidbodyGeometries {
     Polygon(0),
     Circle(1);
 

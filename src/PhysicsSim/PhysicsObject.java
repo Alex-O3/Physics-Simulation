@@ -23,11 +23,19 @@ public class PhysicsObject {
      public String getType() {
          return(whatAmI.getFirstString());
      }
+     public String getGeometryType() {
+         if (whatAmI.getFirstString().equals("Rigidbody")) {
+             if (rigidbody.geometry instanceof Polygon) return "Polygon";
+             if (rigidbody.geometry instanceof Circle) return "Circle";
+             else return "Unknown";
+         }
+         else if (whatAmI.getFirstString().equals("Softbody")) {
+             return "Softbody";
+         }
+         return "Unknown";
+     }
      public int getIDinType() {
          return(whatAmI.getSecondInt());
-     }
-     public int getIDinSim() {
-         return(Simulation.get(whatAmI.getThirdInt()).physicsObjects.indexOf(this));
      }
      public void sleep() {
          switch(whatAmI.getFirstString()) {
@@ -91,6 +99,25 @@ public class PhysicsObject {
             return (new double[]{rigidbody.getPosX(), rigidbody.getPosY()});
         }
         throw new Exception("Physics object (softbody likely) does not store position.");
+    }
+    public double getMass() throws Exception {
+        if (whatAmI.getFirstString().equals("Rigidbody")) {
+            return (rigidbody.getMass());
+        }
+        else if (whatAmI.getFirstString().equals("Softbody")) {
+            double mass = 0.0;
+            for (int i = 0; i < softbody.size(); i++) {
+                mass += softbody.members.get(i).getMass();
+            }
+            return(mass);
+        }
+        throw new Exception("Physics object does not store mass.");
+    }
+    public double getInertia() throws Exception {
+        if (whatAmI.getFirstString().equals("Rigidbody")) {
+            return (rigidbody.getMass());
+        }
+        throw new Exception("Physics object (softbody likely) does not store moment of inertia.");
     }
     public double[] getAngularMovement() throws Exception {
         if (whatAmI.getFirstString().equals("Rigidbody")) {
@@ -163,10 +190,6 @@ public class PhysicsObject {
     public void setBoundaryColor(Color color) {
          if (whatAmI.getFirstString().equals("Softbody")) softbody.setBoundaryColor(color);
          else System.out.println("'setBoundaryColor(Color color)' may not be applied to any physicsObject but a softbody.");
-    }
-    public void enableBoundary(boolean boundaryEnabled) {
-        if (whatAmI.getFirstString().equals("Softbody")) softbody.boundaryCollision = boundaryEnabled;
-        else System.out.println("'enableBoundary(boolean boundaryEnabled)' may not be applied to any physicsObject but a softbody.");
     }
     public ArrayList<PhysicsObject> getObjectCollisions() throws Exception {
          ArrayList<PhysicsObject> returnArray = new ArrayList<>();
@@ -377,7 +400,7 @@ public class PhysicsObject {
         Simulation.createMaterial("Player", 100.0, 0.1, 0.5);
         setMaterial("Player");
      }
-    public void setControllerParameters(double stepsUntilOffGround, double velocityReframingRate) {
+    public void setControllerParameters(int stepsUntilOffGround, double velocityReframingRate) {
         if (whatAmI.getFirstString().equals("Rigidbody")) {
             for (int i = 0; i < rigidbody.controllers.size(); i = i + 1) {
                 rigidbody.controllers.get(i).stepsUntilNotTouchingGround = stepsUntilOffGround;

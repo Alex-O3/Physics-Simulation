@@ -1,6 +1,6 @@
 package PhysicsSim;
 
-public class Material {
+class Material {
     protected final String name;
     protected final double density;
     protected final double restitution;

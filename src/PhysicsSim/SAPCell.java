@@ -2,7 +2,7 @@ package PhysicsSim;
 
 import java.util.ArrayList;
 
- public class SAPCell {
+class SAPCell {
     public final int simID;
     public final int x;
     public final int y;
@@ -19,6 +19,14 @@ import java.util.ArrayList;
     }
     public void addBox(int parentID) {
         AABBox aabb = new AABBox(parentID, aabbs.size());
+        aabbs.add(aabb);
+        endpointsX.add(aabb.minX);
+        endpointsX.add(aabb.maxX);
+        endpointsY.add(aabb.minY);
+        endpointsY.add(aabb.maxY);
+    }
+    public void addBox(Joint solidJoint) {
+        AABBox aabb = new AABBox(solidJoint, aabbs.size());
         aabbs.add(aabb);
         endpointsX.add(aabb.minX);
         endpointsX.add(aabb.maxX);
@@ -44,7 +52,7 @@ import java.util.ArrayList;
                     double y2min = aabbs.get(activelyChecked.get(j)).minY.value;
                     double y2max = aabbs.get(activelyChecked.get(j)).maxY.value;
                     if (y1min <= y2max && y1max >= y2min) {
-                        if (checkIfSameSoftbody(endpoint.boxIndex, activelyChecked.get(j))) continue;
+                        if (checkIfSameJoint(endpoint.boxIndex, activelyChecked.get(j))) continue;
 
                         pairs.add(endpoint.boxIndex);
                         pairs.add(activelyChecked.get(j));
@@ -59,13 +67,21 @@ import java.util.ArrayList;
         activelyChecked.clear();
     }
 
-     private boolean checkIfSameSoftbody(int boxIndex1, int boxIndex2) {
+     private boolean checkIfSameJoint(int boxIndex1, int boxIndex2) {
+        Joint joint1 = aabbs.get(boxIndex1).solidJoint;
+        Joint joint2 = aabbs.get(boxIndex2).solidJoint;
         int parentID1 = aabbs.get(boxIndex1).parentID;
         int parentID2 = aabbs.get(boxIndex2).parentID;
-        if (parentID1 <= -2 && parentID2 <= -2) return(parentID1 == parentID2);
-        else if (parentID1 <= -2) return(-parentID1 - 2 == Rigidbody.get(parentID2).parentSoftbody);
-        else if (parentID2 <= -2) return(-parentID2 - 2 == Rigidbody.get(parentID1).parentSoftbody);
-        return(false);
+        if (parentID1 == parentID2) return true;
+        if (joint1 != null) {
+            if (joint1.parent.ID == parentID2 || joint1.connection.ID == parentID2) return true;
+            if (parentID2 != -1 && Rigidbody.get(parentID2).parentSoftbody != -1 && (joint1.parent.parentSoftbody == Rigidbody.get(parentID2).parentSoftbody || joint1.connection.parentSoftbody == Rigidbody.get(parentID2).parentSoftbody)) return true;
+        }
+        if (joint2 != null) {
+            if (joint2.parent.ID == parentID1 || joint2.connection.ID == parentID1) return true;
+            if (parentID1 != -1 && Rigidbody.get(parentID1).parentSoftbody != -1 && (joint2.parent.parentSoftbody == Rigidbody.get(parentID1).parentSoftbody || joint2.connection.parentSoftbody == Rigidbody.get(parentID1).parentSoftbody)) return true;
+        }
+        return false;
      }
     private static void insertionSort(ArrayList<Endpoint> endpointsList) {
         for (int i = 1; i < endpointsList.size(); i = i + 1) {

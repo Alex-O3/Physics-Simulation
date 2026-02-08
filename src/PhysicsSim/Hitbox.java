@@ -20,23 +20,25 @@ public class Hitbox {
     public int getIDinType() {
         return(whatAmI.getSecondInt());
     }
-    public int getIDinSim() {
-        return(Simulation.get(whatAmI.getThirdInt()).hitboxes.indexOf(this));
+    public String getGeometryType() {
+        if (whatAmI.getFirstString().equals("Rigidbody")) {
+            if (rigidbody.geometry instanceof Polygon) return "Polygon";
+            if (rigidbody.geometry instanceof Circle) return "Circle";
+            else return "Unknown";
+        }
+        else if (whatAmI.getFirstString().equals("Softbody")) {
+            return "Softbody";
+        }
+        return "Unknown";
     }
     public void sleep() {
-        if (whatAmI.getFirstString().equals("Rigidbody")) {
-            rigidbody.simID = -1;
-        }
+        rigidbody.simID = -1;
     }
     public void wake() {
-        if (whatAmI.getFirstString().equals("Rigidbody")) {
-            rigidbody.simID = whatAmI.getThirdInt();
-        }
+        rigidbody.simID = whatAmI.getThirdInt();
     }
     public void setVisible(boolean visible) {
-        if (whatAmI.getFirstString().equals("Rigidbody")) {
-            rigidbody.draw = visible;
-        }
+        rigidbody.draw = visible;
     }
 
     public double[] getAcceleration() throws Exception {
@@ -92,7 +94,7 @@ public class Hitbox {
             rigidbody.setAngularV(angularMovement[0]);
             rigidbody.setAngularA(angularMovement[1]);
         } else {
-            throw new Exception("Hitbox does not store position.");
+            throw new Exception("Hitbox does not store angular movement.");
         }
     }
     public double[] getPositionsX() throws Exception {
@@ -103,7 +105,7 @@ public class Hitbox {
                 case Circle -> (new double[]{drawInformation.getSecondDoubleArray()[0]});
             };
         }
-        throw new Exception("Accessed physicsObject is not a 'Rigidbody', so 'getPositionsX()' is not applicable.");
+        throw new Exception("Accessed hitbox is not a 'Rigidbody', so 'getPositionsX()' is not applicable.");
     }
     public double[] getPositionsY() throws Exception {
         if (whatAmI.getFirstString().equals("Rigidbody")) {
@@ -113,28 +115,18 @@ public class Hitbox {
                 case Circle -> (new double[]{drawInformation.getSecondDoubleArray()[1]});
             };
         }
-        throw new Exception("Accessed physicsObject is not a 'Rigidbody', so 'getPositionsY()' is not applicable.");
+        throw new Exception("Accessed hitbox is not a 'Rigidbody', so 'getPositionsY()' is not applicable.");
     }
     public double getRadius() throws Exception {
-        if (whatAmI.getFirstString().equals("Rigidbody")) return(Math.sqrt(rigidbody.geometry.getLargestDistanceSquared()));
-        throw new Exception("Accessed physicsObject is not a 'Rigidbody', so 'getRadius()' is not applicable.");
+        if (whatAmI.getFirstString().equals("Rigidbody")) return(rigidbody.geometry.getLargestDistance());
+        throw new Exception("Accessed hitbox is not a 'Rigidbody', so 'getRadius()' is not applicable.");
     }
     public ArrayList<PhysicsObject> getObjectCollisions() throws Exception {
         ArrayList<PhysicsObject> returnArray = new ArrayList<>();
-        switch(whatAmI.getFirstString()) {
-            case("Rigidbody"): {
-                for (int i = 0; i < rigidbody.collidingIDs.size(); i = i + 1) {
-                    if (rigidbody.collidingIDs.get(i) >= 0) {
-                        if (Rigidbody.get(rigidbody.collidingIDs.get(i)).isHitbox) continue;
-                        returnArray.add(Simulation.get(whatAmI.getThirdInt()).getObject("Rigidbody", rigidbody.collidingIDs.get(i)));
-                    }
-                    else if (rigidbody.collidingIDs.get(i) <= -2) {
-                        int index = -rigidbody.collidingIDs.get(i) - 2;
-                        PhysicsObject parentSoftbody = Simulation.get(whatAmI.getThirdInt()).getObject("Softbody", index);
-                        if (!returnArray.contains(parentSoftbody)) returnArray.add(parentSoftbody);
-                    }
-                }
-                break;
+        for (int i = 0; i < rigidbody.collidingIDs.size(); i = i + 1) {
+            if (rigidbody.collidingIDs.get(i) >= 0) {
+                if (Rigidbody.get(rigidbody.collidingIDs.get(i)).isHitbox) continue;
+                returnArray.add(Simulation.get(whatAmI.getThirdInt()).getObject("Rigidbody", rigidbody.collidingIDs.get(i)));
             }
         }
         return(returnArray);

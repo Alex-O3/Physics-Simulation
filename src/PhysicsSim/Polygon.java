@@ -189,7 +189,7 @@ class Polygon extends GeometricType {
         Rigidbody myObject = Rigidbody.get(getParentRigidbodyID());
         if (otherGeometry instanceof Polygon) {
             Polygon other = (Polygon) otherGeometry;
-            if (!(otherObject.simID == myObject.simID && (myObject.isHitbox || !otherObject.isHitbox))) return(false);
+            if (otherObject.simID != myObject.simID) return(false);
             boolean intersecting = false;
             for (int i = 0; i < xPoints.size(); i = i + 1) {
                 for (int j = 0; j < other.getNumPoints(); j = j + 1) {
@@ -208,7 +208,7 @@ class Polygon extends GeometricType {
         }
         else if (otherGeometry instanceof Circle) {
             Circle other = (Circle) otherGeometry;
-            if (!(otherObject.simID == myObject.simID && (myObject.isHitbox || !otherObject.isHitbox))) return(false);
+            if (otherObject.simID != myObject.simID) return(false);
             boolean intersecting = false;
             for (int i = 0; i < xPoints.size(); i = i + 1) {
                 if (triangles.get(i).doesExist()) {
@@ -229,22 +229,36 @@ class Polygon extends GeometricType {
         }
     }
 
+
     @Override
-    boolean findCollisions(Softbody softbody) {
-        Rigidbody rigidbody = Rigidbody.get(getParentRigidbodyID());
+    boolean findCollisions(Joint solidJoint) {
+        double lineThickness = Simulation.get(solidJoint.parent.simID).solidJointCollisionLineThickness;
+        lineThickness = Math.min(Math.min(lineThickness, solidJoint.parent.geometry.getLargestDistance()), solidJoint.connection.geometry.getLargestDistance());
+        double x1 = solidJoint.parent.getPosX() + solidJoint.offsetFromCMParent[0];
+        double x2 = solidJoint.connection.getPosX() + solidJoint.offsetFromCMOther[0];
+        double y1 = solidJoint.parent.getPosY() + solidJoint.offsetFromCMParent[1];
+        double y2 = solidJoint.connection.getPosY() + solidJoint.offsetFromCMOther[1];
+        double magnitude = Math.sqrt((x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2));
+        double n1 = -(y2 - y1) / magnitude;
+        double n2 = (x2 - x1) / magnitude;
+        double[] nX = new double[]{n1, n2, -n1, -n2};
+        double[] nY = new double[]{n2, -n1, -n2, n1};
+        double[] posX = new double[]{x1 + n1 * lineThickness, x2 + n1 * lineThickness, x2 - n1 * lineThickness, x1 - n1 * lineThickness};
+        double[] posY = new double[]{y1 + n2 * lineThickness, y2 + n2 * lineThickness, y2 - n2 * lineThickness, y1 - n2 * lineThickness};
         boolean intersecting = false;
-        for (int i = 0; i < xPoints.size(); i = i + 1) {
-            Triplet results = softbody.resolvePointInside(new double[]{xPoints.get(i) + rigidbody.getPosX(), yPoints.get(i) + rigidbody.getPosY()}, 0.0);
-            if (results.getFirstBoolean()) {
-                Double[] MTV = new Double[2];
-                double multiplier = (Rigidbody.getMass(results.getThirdInt()) / (Rigidbody.getMass(results.getThirdInt()) + rigidbody.getMass()));
-                MTV[0] = results.getSecondDoubleArray()[0] * multiplier;
-                MTV[1] = results.getSecondDoubleArray()[1] * multiplier;
-                Double[] contactPoint = new Double[]{xPoints.get(i) + rigidbody.getPosX() + MTV[0], yPoints.get(i) + rigidbody.getPosY() + MTV[1]};
-                rigidbody.contactPoints.add(contactPoint);
-                rigidbody.MTVs.add(MTV);
-                rigidbody.collidingIDs.add(results.getThirdInt());
-                intersecting = true;
+        Rigidbody myObject = Rigidbody.get(getParentRigidbodyID());
+        for (Triangle triangle : triangles) {
+            if (triangle.doesExist()) {
+                Triplet results = triangle.checkCollisions(posX, posY, nX, nY);
+                if (results.getFirstBoolean()) {
+                    intersecting = true;
+                    myObject.contactPoints.add(results.getThirdDoubleArrayReference());
+                    myObject.contactPoints.add(new Double[]{Double.NaN, 0.0});
+                    myObject.MTVs.add(results.getSecondDoubleArrayReference());
+                    myObject.MTVs.add(results.getSecondDoubleArrayReference());
+                    myObject.collidingIDs.add(-solidJoint.parent.ID - 2);
+                    myObject.collidingIDs.add(-solidJoint.connection.ID - 2);
+                }
             }
         }
         return(intersecting);
@@ -307,24 +321,6 @@ class Polygon extends GeometricType {
         }
         return(intersecting);
     }
-    /*boolean checkForCollisionsNarrow(Softbody softbody) {
-        boolean intersecting = false;
-        for (int i = 0; i < xPoints.size(); i = i + 1) {
-            Triplet results = softbody.resolvePointInside(new double[]{xPoints.get(i) + posX, yPoints.get(i) + posY}, 0.0);
-            if (results.getFirstBoolean()) {
-                Double[] MTV = new Double[2];
-                double multiplier = (getMass(results.getThirdInt()) / (getMass(results.getThirdInt()) + mass));
-                MTV[0] = results.getSecondDoubleArray()[0] * multiplier;
-                MTV[1] = results.getSecondDoubleArray()[1] * multiplier;
-                Double[] contactPoint = new Double[]{xPoints.get(i) + posX + MTV[0], yPoints.get(i) + posY + MTV[1]};
-                contactPoints.add(contactPoint);
-                MTVs.add(MTV);
-                collidingIDs.add(results.getThirdInt());
-                intersecting = true;
-            }
-        }
-        return(intersecting);
-    }*/
 
     public int getNumPoints() {
         if (xPoints.size() == yPoints.size()) return(xPoints.size());
@@ -397,7 +393,9 @@ class Polygon extends GeometricType {
         double vY = v[1];
         int length = xPoints.size();
         double magnitude1 = Math.sqrt(vX * vX + vY * vY);
-        if (Double.isNaN(magnitude1)) magnitude1 = 0.0001;
+        if (Double.isNaN(magnitude1)) {
+            return new double[]{0.0, 0.0, 0.0};
+        }
         double uX = vX / magnitude1;
         double uY = vY / magnitude1;
         if (Double.isNaN(uX)) uX = 0.0;
@@ -419,6 +417,9 @@ class Polygon extends GeometricType {
             }
         }
         double magnitude2 = 0.5 * AIR_DENSITY * crossArea * DRAG_COEFFICIENT * magnitude1 * magnitude1;
+        //the 10.0 here is arbitrary, and is a stand-in to prevent quick changes in velocity (impulses) from causing
+        //the simplified drag force from "over-correcting"
+        magnitude2 = Math.min(Rigidbody.get(getParentRigidbodyID()).getMass() * magnitude1 * 10.0, magnitude2);
         fD = new double[]{-uX * magnitude2, -uY * magnitude2};
         for (int i = 0; i < length; i = i + 1) {
             double rPerpX = -yPoints.get(i);
@@ -443,6 +444,7 @@ class Polygon extends GeometricType {
                 torqueSum = torqueSum + torque;
             }
         }
+        if (!Double.isFinite(fD[0]) || !Double.isFinite(fD[1]) || !Double.isFinite(torqueSum)) return new double[]{0.0, 0.0, 0.0};
 
         return(new double[]{fD[0], fD[1], torqueSum});
     }

@@ -19,7 +19,7 @@ class Controller {
     int countUntilOffGround = 0;
     double[] lastGroundVelocity = new double[]{0.0, 0.0};
     //at 5 steps per frame, this is 2 frames
-    public double stepsUntilNotTouchingGround = 10;
+    public int stepsUntilNotTouchingGround = 10;
     public double velocityDecrementWhenInAir = 200.0;
 
     public Controller(char key, double initialVelocity, double releaseVelocity, double sustainedForce, double maxSpeed, double[] direction, Rigidbody rigidbody, char excludeIfKey) {
