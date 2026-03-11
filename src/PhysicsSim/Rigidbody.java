@@ -18,6 +18,7 @@ class Rigidbody {
     //related to joints
     final ArrayList<Joint> attachments = new ArrayList<>();
     CompoundBody compoundBody = null;
+    ConnectedBody connectedBody = null;
 
     //local physical constants
     double COEFFICIENT_OF_RESTITUTION;
@@ -26,6 +27,7 @@ class Rigidbody {
     //generic state information
     private static final ArrayList<Rigidbody> rigidbodies = new ArrayList<>();
     private static final ArrayList<CompoundBody> compoundBodies = new ArrayList<>();
+    private static final ArrayList<ConnectedBody> connectedBodies = new ArrayList<>();
     static int num = 0;
     final int ID;
     private boolean isMovable = true;
@@ -126,54 +128,59 @@ class Rigidbody {
         newvY += aY * dt;
         newangularV += angularA * dt;
     }
-    public static void step(double dt, int simID) {
+    static void step(double dt, int simID) {
         for (Rigidbody rigidbody : rigidbodies) {
-            if (rigidbody.simID == simID) {
-                if (rigidbody.lockedRotation) {
-                    rigidbody.angularV = 0.0;
-                    rigidbody.angularA = 0.0;
-                }
-                if (rigidbody.isMovable() && !rigidbody.isHitbox) {
-                    rigidbody.calcMotion(dt);
-                }
-                else {
-                    rigidbody.newposX = rigidbody.posX;
-                    rigidbody.newposY = rigidbody.posY;
-                    if (!rigidbody.collidingIDs.isEmpty()) {
-                        for (int h = 0; h < rigidbody.collidingIDs.size(); h++) {
-                            if (rigidbody.collidingIDs.get(h) < -1) {
-                                double magnitude = Math.sqrt(rigidbody.MTVs.get(h)[0] * rigidbody.MTVs.get(h)[0] + rigidbody.MTVs.get(h)[1] * rigidbody.MTVs.get(h)[1]);
-                                if (Double.isNaN(magnitude)) magnitude = 0.0;
-                                double nX = rigidbody.MTVs.get(h)[0] / magnitude;
-                                double nY = rigidbody.MTVs.get(h)[1] / magnitude;
-                                if (Double.isNaN(nX) || Double.isNaN(nY)) {
-                                    nX = 0.0;
-                                    nY = 0.0;
-                                }
-                                //the normal here is assumed to point towards this rigidbody and away from the other. For all intents and purposes,
-                                //this choice should not matter so long as it is treated consistently
-                                double rPerp1x = -(rigidbody.contactPoints.get(h)[1] - rigidbody.posY);
-                                double rPerp1y = rigidbody.contactPoints.get(h)[0] - rigidbody.posX;
-                                rigidbody.calcImpulseSolidJoint(rPerp1x, rPerp1y, nX, nY, h);
-                                h++;
+            if (rigidbody == null || rigidbody.simID != simID) continue;
+            if (rigidbody.lockedRotation) {
+                rigidbody.angularV = 0.0;
+                rigidbody.angularA = 0.0;
+            }
+            rigidbody.newposX = rigidbody.posX;
+            rigidbody.newposY = rigidbody.posY;
+            rigidbody.newvX = rigidbody.vX;
+            rigidbody.newvY = rigidbody.vY;
+            rigidbody.newangularV = rigidbody.angularV;
+            if (rigidbody.isMovable() && !rigidbody.isHitbox) {
+                rigidbody.calcMotion(dt);
+            }
+            else {
+                rigidbody.newposX = rigidbody.posX;
+                rigidbody.newposY = rigidbody.posY;
+                if (!rigidbody.collidingIDs.isEmpty()) {
+                    for (int h = 0; h < rigidbody.collidingIDs.size(); h++) {
+                        if (rigidbody.collidingIDs.get(h) < -1) {
+                            double magnitude = Math.sqrt(rigidbody.MTVs.get(h)[0] * rigidbody.MTVs.get(h)[0] + rigidbody.MTVs.get(h)[1] * rigidbody.MTVs.get(h)[1]);
+                            if (Double.isNaN(magnitude)) magnitude = 0.0;
+                            double nX = rigidbody.MTVs.get(h)[0] / magnitude;
+                            double nY = rigidbody.MTVs.get(h)[1] / magnitude;
+                            if (Double.isNaN(nX) || Double.isNaN(nY)) {
+                                nX = 0.0;
+                                nY = 0.0;
                             }
+                            //the normal here is assumed to point towards this rigidbody and away from the other. For all intents and purposes,
+                            //this choice should not matter so long as it is treated consistently
+                            double rPerp1x = -(rigidbody.contactPoints.get(h)[1] - rigidbody.posY);
+                            double rPerp1y = rigidbody.contactPoints.get(h)[0] - rigidbody.posX;
+                            rigidbody.calcImpulseSolidJoint(rPerp1x, rPerp1y, nX, nY, h);
+                            h++;
                         }
                     }
                 }
             }
         }
         for (CompoundBody compoundBody : compoundBodies) {
+            if (compoundBody.members.getFirst().simID != simID) continue;
             compoundBody.equalizeProperties();
         }
         for (Rigidbody rigidbody : rigidbodies) {
+            if (rigidbody == null || rigidbody.simID != simID) continue;
             rigidbody.integrateMotion(dt);
         }
     }
-    public static void updateMotion(double dt, int simID) {
+    static void updateMotion(double dt, int simID) {
         for (Rigidbody rigidbody : rigidbodies) {
-            if (rigidbody.simID == simID) {
-                rigidbody.updateMotion(dt);
-            }
+            if (rigidbody == null || rigidbody.simID != simID) continue;
+            rigidbody.updateMotion(dt);
         }
 
     }
@@ -196,12 +203,6 @@ class Rigidbody {
         if (Double.isFinite(newangularA)) angularA = newangularA;
 
         applyControllers(dt);
-
-        newposX = posX;
-        newposY = posY;
-        newvX = vX;
-        newvY = vY;
-        newangularV = angularV;
     }
     private void applyControllers(double dt) {
         if (!controllers.isEmpty()) {
@@ -277,7 +278,7 @@ class Rigidbody {
     }
     static void clearCollisionInformation(int simID) {
         for (Rigidbody rigidbody : rigidbodies) {
-            if (rigidbody.simID != simID) continue;
+            if (rigidbody == null || rigidbody.simID != simID) continue;
             rigidbody.contactPoints.clear();
             rigidbody.MTVs.clear();
             rigidbody.collidingIDs.clear();
@@ -296,41 +297,88 @@ class Rigidbody {
     }
     static void finalizeCollisionInformation(int simID) {
         for (Rigidbody rigidbody : rigidbodies) {
-            if (rigidbody.simID != simID) continue;
+            if (rigidbody == null || rigidbody.simID != simID) continue;
             if (rigidbody.sim.bounds && rigidbody.isMovable()) rigidbody.checkForCollisionsWall();
             ArrayList<Integer> pinJointBodyIDs = new ArrayList<>();
             for (Joint joint : rigidbody.attachments) {
-                if (joint.type == JointType.Pin || joint.type == JointType.Weld || joint.type == JointType.Revolute) pinJointBodyIDs.add(joint.connection.ID);
+                if (!joint.collidesWithSelfConnections()) pinJointBodyIDs.add(joint.connection.ID);
             }
 
-            //prune the list for points too close to one another (same point, but different triangle with floating point precision differences)
-            if (!rigidbody.contactPoints.isEmpty()) {
-                for (int i = 0; i < rigidbody.contactPoints.size(); i = i + 1) {
-                    if (rigidbody.isAttached && pinJointBodyIDs.contains(rigidbody.collidingIDs.get(i))) {
-                        rigidbody.contactPoints.set(i, new Double[]{Double.NaN, Double.NaN});
-                        continue;
-                    }
-                    for (int j = i + 1; j < rigidbody.contactPoints.size(); j = j + 1) {
-                        if (i != j && !Double.isNaN(rigidbody.contactPoints.get(i)[0]) && !Double.isNaN(rigidbody.contactPoints.get(j)[0])) {
-                            if ((rigidbody.isHitbox) && Objects.equals(rigidbody.collidingIDs.get(i), rigidbody.collidingIDs.get(j))) {
-                                rigidbody.contactPoints.set(j, new Double[]{Double.NaN, Double.NaN});
-                                continue;
-                            }
-                            double temp1 = rigidbody.contactPoints.get(i)[0] - rigidbody.contactPoints.get(j)[0];
-                            double temp2 = rigidbody.contactPoints.get(i)[1] - rigidbody.contactPoints.get(j)[1];
-                            double distance = temp1 * temp1 + temp2 * temp2;
-                            distance = Math.sqrt(Math.max(distance, 0.0));
-                            if (distance <= rigidbody.sim.CONTACT_POINTS_MERGE_DISTANCE) {
-                                rigidbody.contactPoints.set(j, new Double[]{Double.NaN, Double.NaN});
-                            }
+            //prune the list for points too close to one another (same point, but different polygon with floating point precision differences or duplicates)
+            //at the same time, remove collisions close enough to the translational joint attachment to be considered
+            //at the attachment point.
+            if (!rigidbody.contactPoints.isEmpty()) for (int i = 0; i < rigidbody.contactPoints.size(); i = i + 1) {
+                if (rigidbody.isAttached && pinJointBodyIDs.contains(rigidbody.collidingIDs.get(i))) {
+                    rigidbody.contactPoints.set(i, new Double[]{Double.NaN, Double.NaN});
+                    continue;
+                }
+                for (int j = i + 1; j < rigidbody.contactPoints.size(); j = j + 1) {
+                    if (i != j) {
+                        if ((rigidbody.isHitbox) && Objects.equals(rigidbody.collidingIDs.get(i), rigidbody.collidingIDs.get(j))) {
+                            rigidbody.collidingIDs.set(j, -11);
+                            continue;
+                        }
+                        double dx = rigidbody.contactPoints.get(i)[0] - rigidbody.contactPoints.get(j)[0];
+                        double dy = rigidbody.contactPoints.get(i)[1] - rigidbody.contactPoints.get(j)[1];
+                        double distance = Math.sqrt(dx * dx + dy * dy);
+                        if (distance <= rigidbody.sim.CONTACT_POINTS_MERGE_DISTANCE) {
+                            rigidbody.contactPoints.set(j, new Double[]{Double.NaN, Double.NaN});
                         }
                     }
                 }
+
+                if (rigidbody.isAttached) for (Joint translational : rigidbody.attachments) {
+                    if (translational.type != JointType.Translational || rigidbody.collidingIDs.get(i) != translational.connection.ID) continue;
+                    double dx = 0.0;
+                    double dy = 0.0;
+                    if (translational.isTranslationalParent) {
+                        dx = rigidbody.contactPoints.get(i)[0] - (translational.connection.getPosX() + translational.offsetFromCMOther[0]);
+                        dy = rigidbody.contactPoints.get(i)[1] - (translational.connection.getPosY() + translational.offsetFromCMOther[1]);
+                    }
+                    else {
+                        dx = rigidbody.contactPoints.get(i)[0] - (rigidbody.getPosX() + translational.offsetFromCMParent[0]);
+                        dy = rigidbody.contactPoints.get(i)[1] - (rigidbody.getPosY() + translational.offsetFromCMParent[1]);
+                    }
+                    double distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance <= rigidbody.sim.CONTACT_POINTS_MERGE_DISTANCE) {
+                        rigidbody.contactPoints.set(i, new Double[]{Double.NaN, Double.NaN});
+                    }
+                }
             }
-            int length = rigidbody.contactPoints.size();
+
+            //iterate through collisions and remove "rememberedFacesToPass" for stability with faces
+            for (int i = 0; i < rigidbody.collidingIDs.size(); i = i + 1) {
+                if (rigidbody.geometry.rememberedFacesToPass.contains(rigidbody.collidingIDs.get(i))) {
+                    rigidbody.contactPoints.set(i, new Double[]{Double.NaN, Double.NaN});
+                }
+            }
+
+            //the "remove" value marker would be -1, but is -10 to prevent confusion with bounds
+            for (int i = 0; i < rigidbody.geometry.rememberedFacesToPass.size(); i = i + 1) {
+                if (!rigidbody.collidingIDs.contains(rigidbody.geometry.rememberedFacesToPass.get(i))) {
+                    rigidbody.geometry.rememberedFacesToPass.set(i, -10);
+                }
+            }
+            int length = rigidbody.geometry.rememberedFacesToPass.size();
+            for (int i = 0; i < length; i = i + 1) {
+                if (i >= rigidbody.geometry.rememberedFacesToPass.size()) break;
+                if (rigidbody.geometry.rememberedFacesToPass.get(i).equals(-10)) {
+                    rigidbody.geometry.rememberedFacesToPass.remove(i);
+                    i--;
+                }
+            }
+
+
+            length = rigidbody.contactPoints.size();
             for (int i = 0; i < length; i = i + 1) {
                 if (i >= rigidbody.contactPoints.size()) break;
-                if (Double.isNaN(rigidbody.contactPoints.get(i)[0]) && Double.isNaN(rigidbody.contactPoints.get(i)[1])) {
+                if (rigidbody.isHitbox && rigidbody.collidingIDs.get(i) == -11) {
+                    rigidbody.contactPoints.remove(i);
+                    rigidbody.MTVs.remove(i);
+                    rigidbody.collidingIDs.remove(i);
+                    i = i - 1;
+                }
+                if (!rigidbody.isHitbox && Double.isNaN(rigidbody.contactPoints.get(i)[0]) && Double.isNaN(rigidbody.contactPoints.get(i)[1])) {
                     if (i < rigidbody.contactPoints.size() - 1 && Double.isNaN(rigidbody.contactPoints.get(i + 1)[0])
                             && rigidbody.contactPoints.get(i + 1)[1] == 0.0){
                         rigidbody.contactPoints.remove(i);
@@ -451,11 +499,13 @@ class Rigidbody {
         double jr = (c2 * vtrel - c4 * vimprel) / (c2 * c2 - c1 * c4);
         double frictionMax = (c2 * vimprel - c1 * vtrel) / (c2 * c2 - c1 * c4);
         double mu = getCOEFFICIENT_OF_FRICTION();
-        double friction = mu * jr * Math.signum(frictionMax);
+        double friction = Math.abs(mu * jr) * Math.signum(frictionMax);
         if (Math.abs(friction) <= Math.abs(frictionMax)) {
             jr = vimprel / (c1 + c2 * mu * Math.signum(frictionMax));
         }
-        else friction = frictionMax;
+        else {
+            friction = frictionMax;
+        }
 
         newvX = newvX + (jr / mass) * nX + (friction / mass) * -nY;
         newvY = newvY + (jr / mass) * nY + (friction / mass) * nX;
@@ -493,7 +543,7 @@ class Rigidbody {
         double jr = (c2 * vtrel - c4 * vimprel) / (c2 * c2 - c1 * c4);
         double frictionMax = (c2 * vimprel - c1 * vtrel) / (c2 * c2 - c1 * c4);
         double mu = getCOEFFICIENT_OF_FRICTION(other);
-        double friction = mu * jr * Math.signum(frictionMax);
+        double friction = Math.abs(mu * jr) * Math.signum(frictionMax);
         if (Math.abs(friction) <= Math.abs(frictionMax)) {
             jr = vimprel / (c1 + c2 * mu * Math.signum(frictionMax));
         }
@@ -579,7 +629,7 @@ class Rigidbody {
         double jr = (c2 * vtrel - c4 * vimprel) / (c2 * c2 - c1 * c4);
         double frictionMax = (c2 * vimprel - c1 * vtrel) / (c2 * c2 - c1 * c4);
         double mu = getCOEFFICIENT_OF_FRICTION(joint1, joint2);
-        double friction = mu * jr * Math.signum(frictionMax);
+        double friction = Math.abs(mu * jr) * Math.signum(frictionMax);
         if (Math.abs(friction) <= Math.abs(frictionMax)) {
             jr = vimprel / (c1 + c2 * mu * Math.signum(frictionMax));
         }
@@ -620,14 +670,14 @@ class Rigidbody {
     private double[] calculateGravity() {
         double sumaX = 0.0;
         double sumaY = 0.0;
-        for (int i = 0; i < num; i = i + 1) {
-            if (i != ID && Rigidbody.get(i).simID == simID) {
-                double rSquared = (posX - Rigidbody.get(i).getPosX()) * (posX - Rigidbody.get(i).getPosX()) + (posY - Rigidbody.get(i).getPosY()) * (posY - Rigidbody.get(i).getPosY());
+        for (Rigidbody rigidbody : rigidbodies) {
+            if (rigidbody != null && rigidbody.ID != ID && rigidbody.simID == simID && !rigidbody.isHitbox) {
+                double rSquared = (posX - rigidbody.getPosX()) * (posX - rigidbody.getPosX()) + (posY - rigidbody.getPosY()) * (posY - rigidbody.getPosY());
                 if (rSquared > 0.0) {
                     double r = Math.sqrt(rSquared);
-                    double magnitude = (sim.GRAVITATIONAL_CONSTANT * Rigidbody.get(i).getMass()) / (rSquared);
-                    sumaX = sumaX + (magnitude / r) * (Rigidbody.get(i).getPosX() - posX);
-                    sumaY = sumaY + (magnitude / r) * (Rigidbody.get(i).getPosY() - posY);
+                    double magnitude = (sim.GRAVITATIONAL_CONSTANT * rigidbody.getMass()) / (rSquared);
+                    sumaX = sumaX + (magnitude / r) * (rigidbody.getPosX() - posX);
+                    sumaY = sumaY + (magnitude / r) * (rigidbody.getPosY() - posY);
                 }
             }
         }
@@ -637,7 +687,7 @@ class Rigidbody {
         double detectRadiusMultiplier = Math.sqrt(sim.REPULSE_RADIUS_MULTIPLIER);
         double REPULSION_STRENGTH = sim.REPULSION_STRENGTH;
         if (parentSoftbody != -1 && REPULSION_STRENGTH > 0.0) for (int i = 0; i < Softbody.num; i = i + 1) {
-            if (Softbody.get(i).simID == simID && i != parentSoftbody) {
+            if (Softbody.get(i) != null && Softbody.get(i).simID == simID && i != parentSoftbody) {
                 double distanceToBodyX = posX - Softbody.get(i).cM[0];
                 double distanceToBodyY = posY - Softbody.get(i).cM[1];
                 double distanceToBody = Math.sqrt(distanceToBodyX * distanceToBodyX + distanceToBodyY * distanceToBodyY);
@@ -682,7 +732,7 @@ class Rigidbody {
     public static boolean moveByMouse(double x, double y, boolean reset, boolean mousePressed, double dt, int simID) {
         boolean output = false;
         for (int i = 0; i < Rigidbody.num; i = i + 1) {
-            if (Rigidbody.get(i).simID == simID) {
+            if (Rigidbody.get(i) != null && Rigidbody.get(i).simID == simID) {
                 output = Rigidbody.get(i).localMoveByMouse(x, y, reset, mousePressed, dt);
                 if (output) break;
             }
@@ -724,7 +774,7 @@ class Rigidbody {
         }
         return (isInside);
     }
-    public void rotateAroundCenter(double dt) {
+    private void rotateAroundCenter(double dt) {
         if (!lockedRotation) {
             geometry.rotateAroundCenter(angularV * dt);
             double parentCos = Math.cos(angularV * dt);
@@ -734,17 +784,44 @@ class Rigidbody {
                 double y = joint.offsetFromCMParent[1];
                 joint.offsetFromCMParent[0] = x * parentCos - y * parentSin;
                 joint.offsetFromCMParent[1] = y * parentCos + x * parentSin;
+
                 double otherCos = Math.cos(joint.connection.getAngularV() * dt);
                 double otherSin = Math.sin(joint.connection.getAngularV() * dt);
                 x = joint.offsetFromCMOther[0];
                 y = joint.offsetFromCMOther[1];
                 joint.offsetFromCMOther[0] = x * otherCos - y * otherSin;
                 joint.offsetFromCMOther[1] = y * otherCos + x * otherSin;
+
+                if (joint.type == JointType.Translational) {
+                    x = joint.bounds[0];
+                    y = joint.bounds[1];
+                    if (joint.isTranslationalParent) {
+                        joint.bounds[0] = x * parentCos - y * parentSin;
+                        joint.bounds[1] = y * parentCos + x * parentSin;
+                    }
+                    else {
+                        joint.bounds[0] = x * otherCos - y * otherSin;
+                        joint.bounds[1] = y * otherCos + x * otherSin;
+                    }
+                }
             }
         }
     }
 
     //joint related methods
+    public void refreshConnectedBody() {
+        connectedBodies.removeIf(connectedBody -> connectedBody.members.contains(this));
+        ConnectedBody connectedBody = new ConnectedBody(this);
+        if (connectedBody.members.size() < 2) this.connectedBody = null;
+        else connectedBodies.add(connectedBody);
+    }
+    public void refreshCompoundBody() {
+        compoundBodies.removeIf(compoundBody -> compoundBody.members.contains(this));
+        CompoundBody compoundBody = new CompoundBody(this);
+        if (compoundBody.members.size() < 2) this.compoundBody = null;
+        else compoundBodies.add(compoundBody);
+    }
+
     public void springAttach(Rigidbody other, double SPRING_STRENGTH, double SPRING_DAMPING) {
         springAttach(other, SPRING_STRENGTH, SPRING_DAMPING, new double[]{0.0, 0.0}, new double[]{0.0, 0.0}, false);
     }
@@ -776,6 +853,7 @@ class Rigidbody {
         isAttached = true;
         other.isAttached = true;
         if (solid) joint1.makeSolid();
+        refreshConnectedBody();
     }
     public void pinAttach(Rigidbody other, double[] parentOffset, double[] otherOffset) {
         Joint joint1 = Joint.createPin(this, other, otherOffset, parentOffset);
@@ -784,6 +862,7 @@ class Rigidbody {
         other.attachments.add(joint2);
         isAttached = true;
         other.isAttached = true;
+        refreshConnectedBody();
     }
     public void revoluteAttach(Rigidbody other, double[] parentOffset, double[] otherOffset, double angleBound1, double angleBound2) {
         Joint joint1 = Joint.createRevolute(this, other, otherOffset, parentOffset, angleBound1, angleBound2);
@@ -792,17 +871,26 @@ class Rigidbody {
         other.attachments.add(joint2);
         isAttached = true;
         other.isAttached = true;
+        refreshConnectedBody();
     }
     public void weldAttach(Rigidbody other, double[] parentOffset, double[] otherOffset) {
-        compoundBodies.removeIf(compoundBody -> compoundBody.members.contains(this));
         Joint joint1 = Joint.createWeld(this, other, otherOffset, parentOffset);
         Joint joint2 = Joint.createWeld(other, this, parentOffset, otherOffset);
         attachments.add(joint1);
         other.attachments.add(joint2);
         isAttached = true;
         other.isAttached = true;
-        CompoundBody compoundBody = new CompoundBody(this);
-        compoundBodies.add(compoundBody);
+        refreshCompoundBody();
+        refreshConnectedBody();
+    }
+    public void translationalAttach(Rigidbody other, double[] parentOffset, double[] otherOffset, double[] direction, double[] bounds) {
+        Joint joint1 = Joint.createTranslational(this, other, otherOffset, parentOffset, direction, bounds, true);
+        Joint joint2 = Joint.createTranslational(other, this, parentOffset, otherOffset, new double[]{-direction[0], -direction[1]}, bounds, false);
+        attachments.add(joint1);
+        other.attachments.add(joint2);
+        isAttached = true;
+        other.isAttached = true;
+        refreshConnectedBody();
     }
 
     public void setAllSpringJoints(double HOOKE_SPRING_CONSTANT, double SPRING_DAMPING_COEFFICIENT, double SPRING_MIN_DIST_MULT, double SPRING_MAX_DIST_MULT) {
@@ -979,7 +1067,6 @@ class Rigidbody {
                         newx = newx - dot * nX;
                         newy = newy - dot * nY;
                         maxDot = dot;
-                        onBoundary = true;
                     }
                 }
             }
@@ -989,8 +1076,8 @@ class Rigidbody {
 
         //check if the point has already been created (temporary, later going to use local geometry to determine rather than distance check)
         boolean check = false;
-        if (inShape || onBoundary) for (int i = 0; i < Rigidbody.num; i = i + 1) {
-            if (i != ID && Rigidbody.get(i).parentSoftbody == parentSoftbody && Rigidbody.get(i).simID == simID) {
+        for (int i = 0; i < Rigidbody.num; i = i + 1) {
+            if (Rigidbody.get(i) != null && i != ID && Rigidbody.get(i).parentSoftbody == parentSoftbody && Rigidbody.get(i).simID == simID) {
                 double distance = (x - Rigidbody.get(i).posX) * (x - Rigidbody.get(i).posX) + (y - Rigidbody.get(i).posY) * (y - Rigidbody.get(i).posY);
                 distance = Math.sqrt(distance);
                 if (distance < Softbody.get(parentSoftbody).getPointRadius() || (onBoundary && distance < 2.0 * Softbody.get(parentSoftbody).getPointRadius())) {
@@ -1000,7 +1087,6 @@ class Rigidbody {
                 }
             }
         }
-        //if (onBoundary && !check) inShape = true;
 
         return(new Triplet(onBoundary, new double[]{x, y}, inShape));
     }
@@ -1092,6 +1178,20 @@ class Rigidbody {
     public void setPosY(double posY) {
         this.posY = posY;
     }
+    public void setCompoundPos(double posX, double posY) {
+        if (compoundBody != null) compoundBody.setPosition(posX, posY);
+        else {
+            setPosX(posX);
+            setPosY(posY);
+        }
+    }
+    public void setConnectedBodyPos(double posX, double posY) {
+        if (connectedBody != null) connectedBody.changePosition(posX - this.posX, posY - this.posY);
+        else {
+            setPosX(posX);
+            setPosY(posY);
+        }
+    }
     public double getVX() {
         return(vX);
     }
@@ -1104,6 +1204,13 @@ class Rigidbody {
     public void setVY(double vY) {
         this.vY = vY;
     }
+    public void setCompoundV(double vX, double vY) {
+        if (compoundBody != null) compoundBody.setVelocity(vX, vY);
+        else {
+            setVX(vX);
+            setVY(vY);
+        }
+    }
     public double getAX() {
         return(aX);
     }
@@ -1115,6 +1222,25 @@ class Rigidbody {
     }
     public void setAY(double aY) {
         this.aY = aY;
+    }
+    public void setCompoundA(double aX, double aY) {
+        if (compoundBody != null) compoundBody.setAcceleration(aX, aY);
+        else {
+            setAX(aX);
+            setAY(aY);
+        }
+    }
+    public void setCompoundAInitialForce(double aX, double aY) {
+        if (compoundBody != null) {
+            for (Rigidbody member : compoundBody.members) {
+                member.initialExternalForces[0] = aX;
+                member.initialExternalForces[1] = aY;
+            }
+        }
+        else {
+            initialExternalForces[0] = aX;
+            initialExternalForces[1] = aY;
+        }
     }
     public void changeAX(double update) {
         newaX += update;
@@ -1133,6 +1259,12 @@ class Rigidbody {
     }
     public void setAngularA(double angularA) {
         this.angularA = angularA;
+    }
+    public void setCompoundAngularV(double angularV) {
+        if (compoundBody != null) compoundBody.setAngularV(angularV);
+        else {
+            setAngularV(angularV);
+        }
     }
     public int getID() {
         return(ID);

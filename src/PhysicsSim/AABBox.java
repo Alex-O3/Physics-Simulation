@@ -4,7 +4,7 @@ import PhysicsSim.*;
 class AABBox {
     public int parentID = -1;
     public int boxID;
-    //0 - infinity are rigidbodies, negative numbers <= -2 for softbody edges
+    //0 - infinity are rigidbodies, -1 for solid joints
     public Joint solidJoint = null;
     public Endpoint minX;
     public Endpoint maxX;
@@ -68,12 +68,14 @@ class AABBox {
             case(0): {
                 switch (otherType) {
                     case(0): {
+                        if (Rigidbody.get(index).simID != Rigidbody.get(otherIndex).simID) return;
                         if (Rigidbody.get(index).isMovable() || Rigidbody.get(index).isHitbox) Rigidbody.get(index).checkCollisions(Rigidbody.get(otherIndex));
                         if (Rigidbody.get(otherIndex).isMovable() || Rigidbody.get(otherIndex).isHitbox) Rigidbody.get(otherIndex).checkCollisions(Rigidbody.get(index));
                         break;
                     }
                     case(1): {
                         Rigidbody rigidbody = Rigidbody.get(index);
+                        if (rigidbody.simID != aabb.solidJoint.parent.simID || rigidbody.simID != aabb.solidJoint.connection.simID) return;
                         if (!rigidbody.isHitbox && aabb.solidJoint.connection != rigidbody && aabb.solidJoint.parent != rigidbody) {
                             rigidbody.checkCollisions(aabb.solidJoint);
                         }
@@ -85,6 +87,7 @@ class AABBox {
             case(1): {
                 if (otherType == 0) {
                     Rigidbody rigidbody = Rigidbody.get(otherIndex);
+                    if (rigidbody.simID != solidJoint.connection.simID || rigidbody.simID != solidJoint.parent.simID) return;
                     if (!rigidbody.isHitbox && solidJoint.connection != rigidbody && solidJoint.parent != rigidbody) {
                         rigidbody.checkCollisions(solidJoint);
                     }

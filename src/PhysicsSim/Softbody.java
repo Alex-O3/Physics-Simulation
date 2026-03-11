@@ -29,7 +29,6 @@ class Softbody {
     private final boolean isShapeMatch;
     public double SHAPE_MATCH_STRENGTH = 100.0;
     public double SHAPE_MATCH_DAMPING = 0.25;
-    public double DAMP_COEFFICIENT = 0.6;
 
     public Softbody(SoftbodyType type, double[] borderX, double[] borderY, double[] movingMotion, double pointRadius, double targetDensity, double stiffness, double initialPressure, double mass, Color color, double max_dist_multiplier, double min_dist_multiplier, int simID) {
         this.simID = simID;
@@ -169,7 +168,7 @@ class Softbody {
             }
         }
 
-        double checkRadius = r * Math.sqrt(2.0) + 0.01;
+        double checkRadius = r * Math.sqrt(2.0) + Simulation.get(simID).MTV_EPSILON;
         //the sqrt(2) covers diagonal connections while the 0.01 fights floating point precision errors
         if (type == SoftbodyType.SpringMass || type == SoftbodyType.ShapeMatchSolid) sortBoundaryMembers(checkRadius);
 
@@ -183,7 +182,7 @@ class Softbody {
         }
         double massPer = mass / members.size();
         double HOOKE_CONSTANT = stiffness * massPer;
-        double SPRING_DAMPING = DAMP_COEFFICIENT * Math.sqrt(HOOKE_CONSTANT * massPer);
+        double SPRING_DAMPING = Simulation.get(simID).DAMPING_COEFFICIENT_RELATOR * Math.sqrt(HOOKE_CONSTANT * massPer);
         for (int i = 0; i < members.size(); i = i + 1) {
             //Assign motion and mass
             members.get(i).mass = massPer;
@@ -258,12 +257,17 @@ class Softbody {
     private void springTowardsShapeMatch() {
         double crossSum = 0.0;
         double dotSum = 0.0;
+        double[] cMvelocity = new double[]{0.0,0.0};
         for (int i = 0; i < members.size(); i = i + 1) {
             double dx = members.get(i).getPosX() - cM[0];
             double dy = members.get(i).getPosY() - cM[1];
             crossSum = crossSum + (dx * -idealShapeVectors.get(i)[1] + dy * idealShapeVectors.get(i)[0]);
             dotSum = dotSum + (dx * idealShapeVectors.get(i)[0] + dy * idealShapeVectors.get(i)[1]);
+            cMvelocity[0] += members.get(i).getVX() * members.get(i).getMass();
+            cMvelocity[1] += members.get(i).getVY() * members.get(i).getMass();
         }
+        cMvelocity[0] /= mass;
+        cMvelocity[1] /= mass;
         double theta = Math.atan2(crossSum, dotSum);
 
         //iterate through the points and apply a spring force towards the ideal position
@@ -273,7 +277,7 @@ class Softbody {
             double dx = iX - (members.get(i).getPosX() - cM[0]);
             double dy = iY - (members.get(i).getPosY() - cM[1]);
             double distance = Math.sqrt(dx * dx + dy * dy);
-            double magnitude1 = (members.get(i).getVX() * dx + members.get(i).getVY() * dy) / distance;
+            double magnitude1 = ((members.get(i).getVX() - cMvelocity[0]) * dx + (members.get(i).getVY() - cMvelocity[1]) * dy) / distance;
             if (magnitude1 < 0.0) magnitude1 = 0.0;
             double temp1 = magnitude1 * SHAPE_MATCH_DAMPING;
             double temp2 = SHAPE_MATCH_STRENGTH * distance;
