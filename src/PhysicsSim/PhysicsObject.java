@@ -586,26 +586,20 @@ public class PhysicsObject {
      * @param name the name of the material being passed in. Must have a density greater than 0 for density changes to occur.
      */
     public void setMaterial(String name) {
-        for (int i = 0; i < Simulation.materials.size(); i = i + 1) {
-             if (Simulation.materials.get(i).name.equals(name)) {
-                 material = Simulation.materials.get(i);
-                 try {
-                     if (whatAmI.getFirstString().equals("Softbody")) {
-                         for (int j = 0; j < softbody.size(); j = j + 1) {
-                             Simulation.get(whatAmI.getThirdInt()).getObject("Rigidbody", softbody.getMember(j).ID).setMaterial(name);
-                         }
-                         break;
-                     }
-                     setSurfaceCoefficient("RESTITUTION", material.restitution);
-                     setSurfaceCoefficient("FRICTION", material.dynamic_friction);
-                     if (!hasZeroMass()) setDensity(material.density);
-                 }
-                 catch (Exception e) {
-                     System.out.println(e);
-                 }
-                 break;
-             }
-         }
+        material = Simulation.materials.get(name);
+        try {
+            if (whatAmI.getFirstString().equals("Softbody")) {
+                for (int j = 0; j < softbody.size(); j = j + 1) {
+                    Simulation.get(whatAmI.getThirdInt()).getObject("Rigidbody", softbody.getMember(j).ID).setMaterial(name);
+                }
+            }
+            setSurfaceCoefficient("RESTITUTION", material.restitution);
+            setSurfaceCoefficient("FRICTION", material.dynamic_friction);
+            if (!hasZeroMass()) setDensity(material.density);
+        }
+        catch (Exception e) {
+            System.out.println(e);
+        }
     }
 
     /**

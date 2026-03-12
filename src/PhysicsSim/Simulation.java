@@ -48,7 +48,7 @@ public class Simulation {
     final ArrayList<PhysicsObject> physicsObjects = new ArrayList<>();
     final ArrayList<Hitbox> hitboxes = new ArrayList<>();
     final static Material defaultMaterial = new Material("Default", 10.0, 0.75, 0.15);
-    final static ArrayList<Material> materials = new ArrayList<>();
+    final static HashMap<String, Material> materials = new HashMap<>();
 
     //physical constants told to Softbody and Rigidbody
     public double COEFFICIENT_OF_RESTITUTION = 0.75;
@@ -856,23 +856,16 @@ public class Simulation {
     /**
      * Create a material to hold common values of density, coefficients of restitution, and coefficients of friction.
      * Attempting to create a new material of a name that already exists results in nothing occurring.
-     * Note that the list of materials is shared between all simulations.
+     * Note that the list of materials is shared between all simulations, and that materials cannot be removed.
      * @param name the name assigned to this material to refer to later when assigning this material to objects.
      * @param density mass per 2500 unit^2 area.
      * @param restitution the coefficient of restitutions for collision resolution.
      * @param dynamic_friction the coefficient of friction for collision resolution. Bodies switch to static friction if the dynamic friction exceeds constraints.
      */
     public static void createMaterial(String name, double density, double restitution, double dynamic_friction) {
-        boolean alreadyCreated = false;
-        if (!materials.contains(defaultMaterial)) materials.add(defaultMaterial);
-        for (Material material : materials) {
-            if (material.name.equals(name)) {
-                alreadyCreated = true;
-                break;
-            }
-        }
-        if (!alreadyCreated) {
-            materials.add(new Material(name, density, restitution, dynamic_friction));
+        if (!materials.containsValue(defaultMaterial)) materials.put("Default", defaultMaterial);
+        if (!materials.containsKey(name)) {
+            materials.put(name, new Material(name, density, restitution, dynamic_friction));
         }
 
     }
@@ -881,8 +874,8 @@ public class Simulation {
      * List all materials and their properties to System.out. Note that the list of materials is shared between all simulations.
      */
     public static void listAllMaterials() {
-        if (!materials.contains(defaultMaterial)) materials.add(defaultMaterial);
-        for (Material material : materials) {
+        if (!materials.containsValue(defaultMaterial)) materials.put("Default", defaultMaterial);
+        for (Material material : materials.values()) {
             material.print();
         }
     }
