@@ -6,21 +6,15 @@ Second, additional features. The simulation has multiple additional features lik
 
 Third, softbodies. The simulation features softbodies in 3 distinct forms using a combination of 3 main algorithms on a set of rigidbodies. These algorithms seek to emulate either pressure within the softbody from gas, or apply spring forces between each rigidbody and another location. These three algorithms are the pressure-spring approach, the spring-mass approach, and the shape-match approach. While the previous two use spring forces between connected rigidbodies and pressure within the softbody, the shape-match approach applies spring-like forces between each constituent rigidbody and its "ideal" position. These "ideal" positions are calculated by using the Least Squares approach to determine what angle the original shape best matches the most recent shape if rotated by that angle.
 
-Fourth, joints. At the present, the only form of joint in the simulation are spring joints. I am in the process of actively developing distance-constraint joints, translational joints, pin joints, and weld joints so as to allow the creation of compound bodies rather than just rigidbodies or softbodies.
+Fourth, joints. At the present, the simulation contains spring joints, distance-constraint joints, pin, revolute, weld, and translational joints. In the first two, spring forces obeying Hooke's Law with velocity caused damping  act as a soft constraint, with specific impulse and positional enforced distance constraints applied in the second distance-constrain case. In the case of the pin joint, these impulse and positional enforcements are applied at the position of the connection between the two such that the two bodies are "pinned" together and can rotate freely without colliding with one another. Revolute joints take this a steps further and limit the degree of rotation about one another that is allowed, but otherwise function much like pin joints. Even further, weld joints creat compound bodies where relative rotation is prohibited. Translational joints allow relative motion along a defined vector, with "realistic" results created by aligning this vectors and its bounds with an edge of a polygon. All impulses calculated to enforce velocity constraints do so independently, converging towards an ideal solution over multiple time steps. Bodies connected by positional constraint joints move together in calls to PhysicsObject.
 
-Fourth, the simulation makes use of either the Sweep-and-Prune algorithm or the Bounding-Volume-Hierarchy algorithm to optimize collision detection. In my own tests on my personal computer, this averages 50-90 fps with 2000 objects, even without optimization through multi-threading, which is also planned for the future. Other algorithms like quadtrees are planned to be implemented so that I can take advantage of the Barnes-Hut algorithm.
+Fifth, the simulation makes use of either the Sweep-and-Prune algorithm or the Bounding-Volume-Hierarchy algorithm to optimize collision detection. In my own tests on my personal computer, this averages 50-90 fps with 2000 objects, even without optimization through multi-threading, which is also planned for the future. Other algorithms like quadtrees are planned to be implemented so that I can take advantage of the Barnes-Hut algorithm.
 
-Fifth, the simulation categorizes properties into materials and physical constants that can be set and manipulated through calls to the Simulation or PhysicsObject or Hitbox classes, which act as the facades through which the programmer interfaces with the rest of the package. This obfuscates the lower level implementations of the program from the user while still allowing them to read and pass data from it.
-
-What is not pushed to branches yet, but is a completed feature: coupling of friction and normal impulses, fixes to mouse joint behavior, distance constraint joint, pin joints, joints as solid objects that can be collided with.
+Sixth, the simulation categorizes properties into materials and physical constants that can be set and manipulated through calls to the Simulation or PhysicsObject or Hitbox classes, which act as the facades through which the programmer interfaces with the rest of the package. This obfuscates the lower level implementations of the program from the user while still allowing them to read and pass data from it.
 
 I plan to implement the following in the future: quadtree optimizations, Barnes-Hut algorithm for universal gravitation between centers of mass, precise numerical calculations solely for gravitational calculations between extremely close rigidbodies, simplified CFD for air resistance, controllable muscle joints, improved visual scheme using a library other than Swing.
 
-I have made progress on: different types of joints (welds and compound bodies).
-
 Pipedreams: full on particle-based fluid simulation integration, optimization to run at 60 fps with 5000 objects.
-
-Timeline: What is not pushed but is completed is planned to be pushed in the next update, alongside the finished implementation of welds and compound bodies by the end of January.
 
 
 Demos Branch: This branch of the project acts as a branch to demo the features of the simulation. Typing in one of the following commands into the prompt interface will produce the following results -
@@ -35,12 +29,14 @@ Demos Branch: This branch of the project acts as a branch to demo the features o
 
 "Demo5": Showcases one-sided face objects and how they interact with a variety of rigidbodies with different properties and geometries.
 
-"Demo6": Showcases springs being used to form ropes prior to springs being made solid in future updates.
+"Demo6": Showcases springs being used to form ropes prior to springs with solid collision.
 
-"Demo7": Showcases pressure-spring and spring-mass softbodies and their ability to collide with other rigidbodies (later replaced with solid joint collisions).
+"Demo7": Showcases pressure-spring and spring-mass softbodies and their ability to collide with other rigidbodies.
 
 "Demo8": Showcases the two types of shape-match softbodies and the repulsive effect between softbodies to give more realistic looking softbody collisions.
 
 "Demo9": Showcases the player controller mechanics. Use WASD.
 
 "Demo10": Showcases an optimization stress test with 2001 objects.
+
+"Demo11": Showcases each of the different types of positional constraint joints.
