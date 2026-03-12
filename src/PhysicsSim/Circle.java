@@ -25,30 +25,32 @@ class Circle extends GeometricType {
         Rigidbody otherObject = Rigidbody.get(otherGeometry.getParentRigidbodyID());
         Rigidbody myObject = Rigidbody.get(getParentRigidbodyID());
         double MTV_EPSILON = Simulation.get(myObject.simID).MTV_EPSILON;
+        if (otherObject.simID != myObject.simID) return false;
         if (otherGeometry instanceof Polygon) {
             Polygon other = (Polygon) otherGeometry;
             boolean intersecting = false;
-            for (int i = 0; i < other.getNumPoints(); i = i + 1) {
-                if (other.triangles.get(i).doesExist()) {
-                    Triplet results = other.triangles.get(i).checkCollisions(this);
-                    if (results.getFirstBoolean()) {
-                        intersecting = true;
-                        myObject.contactPoints.add(results.getThirdDoubleArrayReference());
-                        Double[] MTV = results.getSecondDoubleArrayReference();
-                        if (otherObject.isMovable()){
-                            double magnitude1 = Math.sqrt(MTV[0] * MTV[0] + MTV[1] * MTV[1]);
-                            double magnitude2 = -(magnitude1 - MTV_EPSILON) * (otherObject.getCompoundMass() / myObject.getCompoundMass()) - MTV_EPSILON;
-                            MTV[0] = MTV[0] * (magnitude2 / magnitude1);
-                            MTV[1] = MTV[1] * (magnitude2 / magnitude1);
-                            myObject.MTVs.add(MTV);
-                            myObject.collidingIDs.add(otherObject.getID());
-                        }
-                        else {
-                            myObject.MTVs.add(MTV);
-                            myObject.collidingIDs.add(otherObject.getID());
-                        }
-
+            for (ConvexPolygon otherConvex : other.convexDecomposition) {
+                Triplet results = otherConvex.checkCollisions(this);
+                if (results.getFirstBoolean()) {
+                    intersecting = true;
+                    myObject.contactPoints.add(results.getThirdDoubleArrayReference());
+                    Double[] MTV = results.getSecondDoubleArrayReference();
+                    if (otherObject.isMovable()){
+                        double magnitude1 = Math.sqrt(MTV[0] * MTV[0] + MTV[1] * MTV[1]);
+                        double magnitude2 = -(magnitude1) * (otherObject.getCompoundMass() / myObject.getCompoundMass());
+                        MTV[0] = MTV[0] * (magnitude2 / magnitude1);
+                        MTV[1] = MTV[1] * (magnitude2 / magnitude1);
+                        myObject.MTVs.add(MTV);
+                        myObject.collidingIDs.add(otherObject.getID());
                     }
+                    else {
+                        double multiplier = -(otherObject.getCompoundMass() + myObject.getCompoundMass()) / myObject.getCompoundMass();
+                        MTV[0] *= multiplier;
+                        MTV[1] *= multiplier;
+                        myObject.MTVs.add(MTV);
+                        myObject.collidingIDs.add(otherObject.getID());
+                    }
+
                 }
             }
             return(intersecting);
@@ -141,25 +143,25 @@ class Circle extends GeometricType {
         double worldRightBound = sim.worldRightBound;
         if (posY + radius >= worldBottomBound) {
             myObject.MTVs.add(new Double[]{0.0, worldBottomBound - (posY + radius) - sim.MTV_EPSILON});
-            myObject.contactPoints.add(new Double[]{posX, worldBottomBound});
+            myObject.contactPoints.add(new Double[]{posX, posY + radius});
             myObject.collidingIDs.add(-1);
             intersecting = true;
         }
         if (posY - radius <= worldTopBound) {
             myObject.MTVs.add(new Double[]{0.0, worldTopBound - (posY - radius) + sim.MTV_EPSILON});
-            myObject.contactPoints.add(new Double[]{posX, worldTopBound});
+            myObject.contactPoints.add(new Double[]{posX, posY - radius});
             myObject.collidingIDs.add(-1);
             intersecting = true;
         }
         if (posX - radius <= worldLeftBound) {
             myObject.MTVs.add(new Double[]{worldLeftBound - (posX - radius) + sim.MTV_EPSILON, 0.0});
-            myObject.contactPoints.add(new Double[]{worldLeftBound, posY});
+            myObject.contactPoints.add(new Double[]{posX - radius, posY});
             myObject.collidingIDs.add(-1);
             intersecting = true;
         }
         if (posX + radius >= worldRightBound) {
             myObject.MTVs.add(new Double[]{worldRightBound - (posX + radius) - sim.MTV_EPSILON, 0.0});
-            myObject.contactPoints.add(new Double[]{worldRightBound, posY});
+            myObject.contactPoints.add(new Double[]{posX + radius, posY});
             myObject.collidingIDs.add(-1);
             intersecting = true;
         }

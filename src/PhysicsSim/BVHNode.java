@@ -61,15 +61,7 @@ class BVHNode {
         Joint joint2 = aabbs.get(boxIndex2).solidJoint;
         int parentID1 = aabbs.get(boxIndex1).parentID;
         int parentID2 = aabbs.get(boxIndex2).parentID;
-        if (parentID1 == parentID2) return true;
-        if (joint1 != null) {
-            if (joint1.parent.ID == parentID2 || joint1.connection.ID == parentID2) return true;
-            if (parentID2 != -1 && (joint1.parent.parentSoftbody == Rigidbody.get(parentID2).parentSoftbody || joint1.connection.parentSoftbody == Rigidbody.get(parentID2).parentSoftbody)) return true;
-        }
-        if (joint2 != null) {
-            if (joint2.parent.ID == parentID1 || joint2.connection.ID == parentID1) return true;
-            if (parentID1 != -1 && (joint2.parent.parentSoftbody == Rigidbody.get(parentID1).parentSoftbody || joint2.connection.parentSoftbody == Rigidbody.get(parentID1).parentSoftbody)) return true;
-        }
+        Joint.checkIfSameJoint(parentID1, parentID2, joint1, joint2);
         return false;
     }
     public static int getMostSignificantBitIndexFromLeft(long a, int startIndexFromLeft) {

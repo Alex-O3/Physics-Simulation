@@ -12,7 +12,9 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
     public boolean debugBounds = false;
     public boolean debugRadius = false;
     public boolean showCircleRotation = false;
+    public double MOUSE_SLIDING_MULTIPLIER = 7.0;
     public final JLabel fps = new JLabel();
+    public final JFrame frame;
 
     public boolean mouse = false;
     public double resolutionScaling = 1.0;
@@ -56,7 +58,7 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
             addMouseWheelListener(this);
         }
 
-        JFrame frame = new JFrame();
+        frame = new JFrame();
         frame.setBounds(x,y,screenWidth,screenHeight);
         frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
 
@@ -72,23 +74,19 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
         SwingUtilities.invokeLater(this::requestFocusInWindow);
     }
     public void mouseDrag(double dt, int stepsPerFrame) {
-        dt = dt * stepsPerFrame;
-        timeElapsed = System.currentTimeMillis() - lastTime;
-        //System.out.println(mouseX + ", " + mouseY);
         boolean isInside = false;
-        boolean results = false;
-        if (timeElapsed / 1000.0 > dt) {
-            results = Rigidbody.moveByMouse(mouseX, mouseY, true, mousePressed, dt, simID);
+        double stopMovementTimeTest = (System.currentTimeMillis() - lastTime) / 1000.0;
+        if (stopMovementTimeTest > timeElapsed * MOUSE_SLIDING_MULTIPLIER) {
+            isInside = Rigidbody.moveByMouse(mouseX, mouseY, true, mousePressed, dt, simID);
             vmXDisplay = 0.0;
             vmYDisplay = 0.0;
         }
         else {
-            results = Rigidbody.moveByMouse(mouseX, mouseY, false, mousePressed, dt, simID);
+            isInside = Rigidbody.moveByMouse(mouseX, mouseY, false, mousePressed, dt, simID);
         }
-        isInside = results;
         if (mousePressed && !isInside && timeElapsed > 0.0) {
-            pixelShiftX = pixelShiftX + vmXDisplay * (dt / stepsPerFrame);
-            pixelShiftY = pixelShiftY + vmYDisplay * (dt / stepsPerFrame);
+            pixelShiftX = pixelShiftX + vmXDisplay * dt;
+            pixelShiftY = pixelShiftY + vmYDisplay * dt;
         }
     }
     public void refresh() {
@@ -107,9 +105,10 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
         try {
             if (Simulation.get(simID).physicsObjects.isEmpty() && Simulation.get(simID).hitboxes.isEmpty()) return;
             super.paintComponent(g);
+            boolean paintCentersOfMasses = Simulation.get(simID).displayCentersOfMasses;
             for (int i = 0; i < Rigidbody.num; i++) {
                 Rigidbody rigidbody = Rigidbody.get(i);
-                if (rigidbody == null || !rigidbody.draw) continue;
+                if (rigidbody == null || !rigidbody.draw || rigidbody.simID != simID) continue;
                 Material material;
                 try {
                     material = Simulation.get(simID).getObject("Rigidbody", i).material;
@@ -126,7 +125,6 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
                 }
                 Triplet drawInformation = rigidbody.getDraw(shiftX, resolutionCenterX, pixelShiftX,
                         shiftY, resolutionCenterY, pixelShiftY, resolutionScaling);
-                if (rigidbody.simID != simID || !rigidbody.draw) continue;
                 g.setColor(rigidbody.geometry.getColor());
                 switch (drawInformation.getFirstRigidbodyGeometries()) {
                     case Polygon: {
@@ -147,18 +145,18 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
 
                 //draw center of mass unless that drawing would be larger than the shape
                 double largestDistance = rigidbody.geometry.getLargestDistance();
-                if (largestDistance / resolutionScaling > 15.0 && rigidbody.isMovable()) {
+                if (paintCentersOfMasses && rigidbody.compoundBody == null && largestDistance / resolutionScaling > 15.0 && rigidbody.isMovable()) {
                     g.setColor(Color.red);
                     g.fillOval(convertX(rigidbody.getPosX()) - 5, convertY(rigidbody.getPosY()) - 5, 10, 10);
                 }
 
                 //draw debug velocity and acceleration vectors
-                if (debugVector == 1) {
+                if (debugVector == 1 && rigidbody.compoundBody == null) {
                     g.setColor(Color.red);
                     g.drawLine(convertX(rigidbody.getPosX()), convertY(rigidbody.getPosY()),
                             convertX(rigidbody.getPosX() + rigidbody.getVX() * debugVectorScaling),
                             convertY(rigidbody.getPosY() + rigidbody.getVY() * debugVectorScaling));
-                } else if (debugVector == 2) {
+                } else if (debugVector == 2 && rigidbody.compoundBody == null) {
                     g.setColor(Color.blue);
                     g.drawLine(convertX(rigidbody.getPosX()), convertY(rigidbody.getPosY()),
                             convertX(rigidbody.getPosX() + rigidbody.getAX() * debugVectorScaling),
@@ -172,7 +170,7 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
             }
             for (int i = 0; i < Rigidbody.num; i++) {
                 Rigidbody rigidbody = Rigidbody.get(i);
-                if (rigidbody == null || !rigidbody.draw) continue;
+                if (rigidbody == null || !rigidbody.draw || rigidbody.simID != simID || rigidbody.compoundBody != null) continue;
                 g.setColor(rigidbody.geometry.getColor().darker());
                 for (Joint joint : rigidbody.attachments) {
                     double[] pos1 = new double[]{joint.parent.getPosX() + joint.offsetFromCMParent[0],joint.parent.getPosY() + joint.offsetFromCMParent[1]};
@@ -187,18 +185,46 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
                         g.fillPolygon(x, y, 4);
                     }
                     else {
+                        if (joint.type != JointType.Translational) {
+                            g.drawLine(convertX(pos1[0]), convertY(pos1[1]), convertX(pos2[0]), convertY(pos2[1]));
+                        }
+                        if (joint.type != JointType.Translational || !joint.isTranslationalParent) g.fillOval(convertX(pos1[0] - 3.0), convertY(pos1[1] - 3.0), (int) (6.0 / resolutionScaling), (int) (6.0 / resolutionScaling));
+                    }
+
+                    if (joint.type == JointType.Translational) {
+                        if (joint.isTranslationalParent) {
+                            pos1 = new double[]{joint.parent.getPosX() + joint.offsetFromCMParent[0] + joint.bounds[0] * joint.maxDistMultiplier, joint.parent.getPosY() + joint.offsetFromCMParent[1] + joint.bounds[1] * joint.maxDistMultiplier};
+                            pos2 = new double[]{joint.parent.getPosX() + joint.offsetFromCMParent[0] + joint.bounds[0] * joint.minDistMultiplier, joint.parent.getPosY() + joint.offsetFromCMParent[1] + joint.bounds[1] * joint.minDistMultiplier};
+                        }
+                        else {
+                            pos1 = new double[]{joint.connection.getPosX() + joint.offsetFromCMOther[0] - joint.bounds[0] * joint.maxDistMultiplier, joint.connection.getPosY() + joint.offsetFromCMOther[1] - joint.bounds[1] * joint.maxDistMultiplier};
+                            pos2 = new double[]{joint.connection.getPosX() + joint.offsetFromCMOther[0] - joint.bounds[0] * joint.minDistMultiplier, joint.connection.getPosY() + joint.offsetFromCMOther[1] - joint.bounds[1] * joint.minDistMultiplier};
+                        }
                         g.drawLine(convertX(pos1[0]), convertY(pos1[1]), convertX(pos2[0]), convertY(pos2[1]));
-                        g.fillOval(convertX(pos1[0]) - 5, convertY(pos1[1]) - 5, 10, 10);
                     }
                 }
             }
+            g.setColor(Color.black);
             for (int i = 0; i < Rigidbody.compoundNum(); i++) {
-                g.setColor(Color.black);
-                g.fillOval(convertX(Rigidbody.getCompound(i).cM[0]) - 5, convertY(Rigidbody.getCompound(i).cM[1]) - 5, 10, 10);
+                CompoundBody compoundBody = Rigidbody.getCompound(i);
+                if (compoundBody == null || compoundBody.cM == null || compoundBody.members.getFirst().simID != simID) continue;
+                if (paintCentersOfMasses) g.fillOval(convertX(Rigidbody.getCompound(i).cM[0] - 5.0), convertY(Rigidbody.getCompound(i).cM[1] - 5.0), (int) (10.0 / resolutionScaling), (int) (10.0 / resolutionScaling));
+                if (debugVector == 1) {
+                    g.setColor(Color.red);
+                    g.drawLine(convertX(compoundBody.cM[0]), convertY(compoundBody.cM[1]),
+                            convertX(compoundBody.cM[0] + compoundBody.getVX() * debugVectorScaling),
+                            convertY(compoundBody.cM[1] + compoundBody.getVY() * debugVectorScaling));
+                } else if (debugVector == 2) {
+                    g.setColor(Color.blue);
+                    g.drawLine(convertX(compoundBody.cM[0]), convertY(compoundBody.cM[1]),
+                            convertX(compoundBody.cM[0] + compoundBody.getAX() * debugVectorScaling),
+                            convertY(compoundBody.cM[1] + compoundBody.getAY() * debugVectorScaling));
+                }
             }
 
             if (debugRadius) for (int i = 0; i < Softbody.num; i++) {
                 Softbody softbody = Softbody.get(i);
+                if (softbody == null || softbody.simID != simID) continue;
                 g.setColor(Color.red);
                 double repulse_radius_multiplier = Math.sqrt(Simulation.get(simID).REPULSE_RADIUS_MULTIPLIER);
                 g.drawOval(convertX(softbody.cM[0] - softbody.getRadius()),
@@ -261,7 +287,7 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
 
     private void updateMouseInfo(double x, double y) {
         double currentTime = System.currentTimeMillis();
-        double timeElapsed = (currentTime - lastTime) / 1000.0;
+        timeElapsed = (currentTime - lastTime) / 1000.0;
         lastTime = currentTime;
         mouseX = reverseConvertX(x);
         mouseY = reverseConvertY(y);

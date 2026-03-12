@@ -1,16 +1,19 @@
 package PhysicsSim;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 
 class Polygon extends GeometricType {
     private final ArrayList<Double> xPoints = new ArrayList<>();
     private final ArrayList<Double> yPoints = new ArrayList<>();
-    public final ArrayList<Triangle> triangles = new ArrayList<>();
+    public final ArrayList<ConvexPolygon> convexDecomposition = new ArrayList<>();
     private boolean invertNormals;
     private final String pointExclusionsCategorization;
+    private final String convexDecompositionCategorization;
 
     public Polygon(double[] inputX, double[] inputY, double MTV_EPSILON) {
         super(Rigidbody.num);
+        final ArrayList<Triangle> constructionTriangles = new ArrayList<>();
 
         int length = Math.min(inputX.length, inputY.length);
         for (int i = 0; i < length; i = i + 1) {
@@ -29,7 +32,7 @@ class Polygon extends GeometricType {
 
         //create a list of triangles in which each one is unassigned
         for (int i = 0; i < length; i = i + 1) {
-            triangles.add(new Triangle());
+            constructionTriangles.add(new Triangle());
         }
 
         //begin earmarking triangulation process.
@@ -60,14 +63,7 @@ class Polygon extends GeometricType {
             }
             //check if the point in question has a concave angle in the proposed triangle. Check normals on centroid
             double[] center = new double[]{(xPoints.get(mod(i,length)) + xPoints.get(mod(forwardIndex,length)) + xPoints.get(mod(backwardIndex,length))) / 3.0, (yPoints.get(mod(i,length)) + yPoints.get(mod(forwardIndex,length)) + yPoints.get(mod(backwardIndex,length))) / 3.0};
-            boolean concave = false;
-            concave = isOnNormalSide(center,mod(backwardIndex, length), mod(i,length));
-            if (!concave) {
-                concave = isOnNormalSide(center,mod(i,length),mod(forwardIndex, length));
-            }
-            if (!concave) {
-                concave = isOnNormalSide(center,mod(forwardIndex, length),mod(backwardIndex, length));
-            }
+            boolean concave = validateAngleConcavity(mod(backwardIndex,length), mod(i, length), mod(forwardIndex, length));
             //if concave, then mark it and move on to the next point.
             if (concave) pointExclusions[mod(i,length)] = 1;
             else {
@@ -91,8 +87,7 @@ class Polygon extends GeometricType {
                     //Save as a triangle and mark point as covered (3)
                     pointExclusions[mod(i,length)] = 3; //it means this point is the parent point of a triangle that is now removed from the polygon in the triangulation process
                     Triangle triangle = new Triangle(mod(backwardIndex, length), mod(i,length), mod(forwardIndex,length), this, center);
-                    triangle.setMTVEpsilon(MTV_EPSILON);
-                    triangles.set(mod(i,length), triangle);
+                    constructionTriangles.set(mod(i,length), triangle);
                     numTriangles = numTriangles + 1;
                 }
             }
@@ -132,21 +127,85 @@ class Polygon extends GeometricType {
         double calcInertia = 0.0;
         //center of mass
         for (int i = 0; i < length; i = i + 1) {
-            if (pointExclusions[i] == 3 && triangles.get(i).doesExist()) {
-                triangles.get(i).calculateProperties(area);
-                centerOfMassX = centerOfMassX + (triangles.get(i).getArea() / area) * triangles.get(i).getCenterX();
-                centerOfMassY = centerOfMassY + (triangles.get(i).getArea() / area) * triangles.get(i).getCenterY();
+            if (pointExclusions[i] == 3 && constructionTriangles.get(i).doesExist()) {
+                constructionTriangles.get(i).calculateProperties(area);
+                centerOfMassX = centerOfMassX + (constructionTriangles.get(i).getArea() / area) * constructionTriangles.get(i).getCenterX();
+                centerOfMassY = centerOfMassY + (constructionTriangles.get(i).getArea() / area) * constructionTriangles.get(i).getCenterY();
             }
         }
         //moment of inertia
         for (int i = 0; i < length; i = i + 1) {
-            if (triangles.get(i).doesExist()) {
-                double squaredDistance = (triangles.get(i).getCenterX() - centerOfMassX) * (triangles.get(i).getCenterX() - centerOfMassX);
-                squaredDistance = squaredDistance + (triangles.get(i).getCenterY() - centerOfMassY) * (triangles.get(i).getCenterY() - centerOfMassY);
-                calcInertia = calcInertia + triangles.get(i).getMasslessInertia() + (triangles.get(i).getArea() / area) * squaredDistance;
+            if (constructionTriangles.get(i).doesExist()) {
+                double squaredDistance = (constructionTriangles.get(i).getCenterX() - centerOfMassX) * (constructionTriangles.get(i).getCenterX() - centerOfMassX);
+                squaredDistance = squaredDistance + (constructionTriangles.get(i).getCenterY() - centerOfMassY) * (constructionTriangles.get(i).getCenterY() - centerOfMassY);
+                calcInertia = calcInertia + constructionTriangles.get(i).getMasslessInertia() + (constructionTriangles.get(i).getArea() / area) * squaredDistance;
             }
         }
         masslessInertia = calcInertia;
+
+        //triangulation and properties calculation is now done. We can now proceed to merging triangles into convex polygons.
+        for (int i = 0; i < constructionTriangles.size(); i++) {
+            if (constructionTriangles.get(i).doesExist()) {
+                convexDecomposition.add(new ConvexPolygon(constructionTriangles.get(i), this));
+            }
+            else convexDecomposition.add(new ConvexPolygon());
+        }
+        for (int i = 0; i < convexDecomposition.size(); i++) {
+            if (!convexDecomposition.get(i).doesExist()) continue;
+            ConvexPolygon currentConvex = convexDecomposition.get(i);
+            //check all other convex polygons for shared edges
+            boolean valid = false;
+            for (int edgeIndex = 0; edgeIndex < currentConvex.size(); edgeIndex++) {
+                int edgePointA0 = currentConvex.indices[mod(edgeIndex - 1, currentConvex.size())];
+                int edgePointA1 = currentConvex.indices[edgeIndex];
+                int edgePointB1 = currentConvex.indices[mod(edgeIndex + 1, currentConvex.size())];
+                int edgePointB2 = currentConvex.indices[mod(edgeIndex + 2, currentConvex.size())];
+
+                //find another polygon that shares the edge, if any
+                ConvexPolygon option = new ConvexPolygon();
+                for (int j = i + 1; j < convexDecomposition.size(); j++) {
+                    if (convexDecomposition.get(j).doesExist()) {
+                        option = convexDecomposition.get(j);
+                        for (int optionEdgeIndex = 0; optionEdgeIndex < option.size(); optionEdgeIndex++) {
+                            int optionPointA = option.indices[optionEdgeIndex];
+                            int optionPointB = option.indices[(optionEdgeIndex + 1) % option.size()];
+                            if (edgePointA1 == optionPointA && edgePointB1 == optionPointB) {
+                                System.out.println("There is a winding order issue present.");
+                            }
+                            else if (edgePointA1 == optionPointB && edgePointB1 == optionPointA) {
+                                int edgePointB0 = option.indices[mod(optionEdgeIndex - 1, option.size())];
+                                int edgePointA2 = option.indices[mod(optionEdgeIndex + 2, option.size())];
+
+                                //check if the proposed triangles A and B are concave. Triangles formed between two convex polygons cannot be self intersecting
+                                //as a consequence of lack of concavity (which means the angles must be convex).
+                                valid = !validateAngleConcavity(edgePointA0, edgePointA1, edgePointA2) && !validateAngleConcavity(edgePointB0, edgePointB1, edgePointB2);
+                                if (valid) {
+                                    i = i - 1;
+                                    currentConvex.merge(option, edgePointA1, edgePointB1);
+                                    convexDecomposition.set(j, new ConvexPolygon());
+                                    break;
+                                }
+                            }
+                        }
+                        if (valid) break;
+                    }
+                }
+                if (valid) break;
+            }
+        }
+
+        for (int i = 0; i < length; i++) {
+            if (i >= convexDecomposition.size()) break;
+            ConvexPolygon convexPolygon = convexDecomposition.get(i);
+            if (convexPolygon.doesExist()) {
+                convexPolygon.calculateProperties(area);
+                convexPolygon.shift(centerOfMassX, centerOfMassY);
+            }
+            else {
+                convexDecomposition.remove(convexPolygon);
+                i = i - 1;
+            }
+        }
         //shift all points in the polygon's coordinate plane such that the center of mass is the origin and find the largest squared distance
         for (int i = 0; i < length; i = i + 1) {
             xPoints.set(i, xPoints.get(i) - centerOfMassX);
@@ -155,17 +214,48 @@ class Polygon extends GeometricType {
             yPoints.set(i, yPoints.get(i) - centerOfMassY);
             if (Double.isNaN(topBoundBox) || yPoints.get(i) < topBoundBox) topBoundBox = yPoints.get(i);
             if (Double.isNaN(topBoundBox) || yPoints.get(i) > bottomBoundBox) bottomBoundBox = yPoints.get(i);
-            triangles.get(i).shift(centerOfMassX, centerOfMassY);
             double temp = xPoints.get(i) * xPoints.get(i) + yPoints.get(i) * yPoints.get(i);
             if (temp > largestDistanceSquared) largestDistanceSquared = temp;
         }
         largestDistance = Math.sqrt(largestDistanceSquared);
+
+        StringBuilder convexCategorization = new StringBuilder();
+        convexCategorization.append("Convex Decomposition by edge index: {");
+        for (int i = 0; i < convexDecomposition.size(); i++) {
+            ConvexPolygon convexPolygon = convexDecomposition.get(i);
+            convexCategorization.append(toAlphabetic(i));
+            convexCategorization.append(": ");
+            convexCategorization.append(Arrays.toString(convexPolygon.indices));
+            if (i < convexDecomposition.size() - 1) convexCategorization.append(", ");
+        }
+        convexCategorization.append("}");
+        this.convexDecompositionCategorization = convexCategorization.toString();
+
+    }
+    private static String toAlphabetic(int i) {
+        if(i < 0) {
+            return "-" + toAlphabetic(-i-1);
+        }
+
+        int quot = i/26;
+        int rem = i%26;
+        char letter = (char)((int)'A' + rem);
+        if( quot == 0 ) {
+            return ""+letter;
+        } else {
+            return toAlphabetic(quot-1) + letter;
+        }
     }
 
     private boolean isOnNormalSide(double[] point, int index1, int index2) {
         double dotProduct = (yPoints.get(index1) - point[1]) * (xPoints.get(index2) - xPoints.get(index1));
         dotProduct = dotProduct - (xPoints.get(index1) - point[0]) * (yPoints.get(index2) - yPoints.get(index1));
         return (dotProduct > 0.0 && invertNormals) || (dotProduct < 0.0 && !invertNormals);
+    }
+    private boolean validateAngleConcavity(int index1, int index2, int index3) {
+        double[] center = new double[]{(xPoints.get(index1) + xPoints.get(index2) + xPoints.get(index3)) / 3.0,
+                (yPoints.get(index1) + yPoints.get(index2) + yPoints.get(index3)) / 3.0};
+        return isOnNormalSide(center,index1, index2) || isOnNormalSide(center,index2, index3) || isOnNormalSide(center, index3, index1);
     }
     public double getXPoints(int index) {
         return(xPoints.get(index));
@@ -177,48 +267,50 @@ class Polygon extends GeometricType {
     public String getTriangulationCategorization() {
         return pointExclusionsCategorization;
     }
-    public void setTriangle(int triangleIndex, int edgeIndex, boolean isFace) {
-        Triangle triangle = triangles.get(triangleIndex);
-        triangle.enabled[edgeIndex] = isFace;
-        triangle.partOfFace = !triangle.enabled[0] || !triangle.enabled[1] || !triangle.enabled[2];
+    public String getConvexCategorization() {
+        return convexDecompositionCategorization;
+    }
+    public void setFace(int edgeIndex) {
+        for (ConvexPolygon option : convexDecomposition) {
+            for (int i = 0; i < option.indices.length; i++) {
+                //make sure the edgeIndex matches and it is an external edge.
+                if (option.indices[i] == edgeIndex && option.indices[mod(i + 1, option.indices.length)] == mod(option.indices[i] + 1, xPoints.size())) {
+                    option.faceEdgeIndex = i;
+                    break;
+                }
+            }
+        }
     }
 
     @Override
     boolean findCollisions(GeometricType otherGeometry) {
         Rigidbody otherObject = Rigidbody.get(otherGeometry.getParentRigidbodyID());
         Rigidbody myObject = Rigidbody.get(getParentRigidbodyID());
+        if (otherObject.simID != myObject.simID) return(false);
         if (otherGeometry instanceof Polygon) {
-            Polygon other = (Polygon) otherGeometry;
-            if (otherObject.simID != myObject.simID) return(false);
             boolean intersecting = false;
-            for (int i = 0; i < xPoints.size(); i = i + 1) {
-                for (int j = 0; j < other.getNumPoints(); j = j + 1) {
-                    if (triangles.get(i).doesExist() && other.triangles.get(j).doesExist()){
-                        Triplet results = triangles.get(i).checkCollisions(other.triangles.get(j));
-                        if (results.getFirstBoolean()) {
-                            intersecting = true;
-                            myObject.contactPoints.add(results.getThirdDoubleArrayReference());
-                            myObject.MTVs.add(results.getSecondDoubleArrayReference());
-                            myObject.collidingIDs.add(otherObject.ID);
-                        }
-                    }
-                }
-            }
-            return(intersecting);
-        }
-        else if (otherGeometry instanceof Circle) {
-            Circle other = (Circle) otherGeometry;
-            if (otherObject.simID != myObject.simID) return(false);
-            boolean intersecting = false;
-            for (int i = 0; i < xPoints.size(); i = i + 1) {
-                if (triangles.get(i).doesExist()) {
-                    Triplet results = triangles.get(i).checkCollisions(other);
+            for (ConvexPolygon myConvex : convexDecomposition) {
+                for (ConvexPolygon otherConvex : ((Polygon) otherGeometry).convexDecomposition) {
+                    Triplet results = myConvex.checkCollisions(otherConvex);
                     if (results.getFirstBoolean()) {
                         intersecting = true;
                         myObject.contactPoints.add(results.getThirdDoubleArrayReference());
                         myObject.MTVs.add(results.getSecondDoubleArrayReference());
                         myObject.collidingIDs.add(otherObject.ID);
                     }
+                }
+            }
+            return(intersecting);
+        }
+        else if (otherGeometry instanceof Circle other) {
+            boolean intersecting = false;
+            for (ConvexPolygon myConvex : convexDecomposition) {
+                Triplet results = myConvex.checkCollisions(other);
+                if (results.getFirstBoolean()) {
+                    intersecting = true;
+                    myObject.contactPoints.add(results.getThirdDoubleArrayReference());
+                    myObject.MTVs.add(results.getSecondDoubleArrayReference());
+                    myObject.collidingIDs.add(otherObject.ID);
                 }
             }
             return(intersecting);
@@ -247,76 +339,77 @@ class Polygon extends GeometricType {
         double[] posY = new double[]{y1 + n2 * lineThickness, y2 + n2 * lineThickness, y2 - n2 * lineThickness, y1 - n2 * lineThickness};
         boolean intersecting = false;
         Rigidbody myObject = Rigidbody.get(getParentRigidbodyID());
-        for (Triangle triangle : triangles) {
-            if (triangle.doesExist()) {
-                Triplet results = triangle.checkCollisions(posX, posY, nX, nY);
-                if (results.getFirstBoolean()) {
-                    intersecting = true;
-                    myObject.contactPoints.add(results.getThirdDoubleArrayReference());
-                    myObject.contactPoints.add(new Double[]{Double.NaN, 0.0});
-                    myObject.MTVs.add(results.getSecondDoubleArrayReference());
-                    myObject.MTVs.add(results.getSecondDoubleArrayReference());
-                    myObject.collidingIDs.add(-solidJoint.parent.ID - 2);
-                    myObject.collidingIDs.add(-solidJoint.connection.ID - 2);
-                }
+        for (ConvexPolygon myConvex : convexDecomposition) {
+            Triplet results = myConvex.checkCollisions(posX, posY, nX, nY,
+                    solidJoint.parent.getCompoundMass() + solidJoint.connection.getCompoundMass(), !solidJoint.parent.isMovable() && !solidJoint.connection.isMovable());
+            if (results.getFirstBoolean()) {
+                intersecting = true;
+                myObject.contactPoints.add(results.getThirdDoubleArrayReference());
+                myObject.contactPoints.add(new Double[]{Double.NaN, 0.0});
+                myObject.MTVs.add(results.getSecondDoubleArrayReference());
+                myObject.MTVs.add(results.getSecondDoubleArrayReference());
+                myObject.collidingIDs.add(-solidJoint.parent.ID - 2);
+                myObject.collidingIDs.add(-solidJoint.connection.ID - 2);
             }
         }
-        return(intersecting);
+        return(false);
     }
 
     @Override
     boolean checkForCollisionsWall() {
-        double left = 0.0;
-        double right = 0.0;
-        double bottom = 0.0;
-        double top = 0.0;
-        Rigidbody myObject = Rigidbody.get(getParentRigidbodyID());
+        Rigidbody myObject = getParent();
+        Simulation sim = myObject.sim;
         double posX = myObject.getPosX();
         double posY = myObject.getPosY();
-        Simulation sim = Simulation.get(myObject.simID);
         double worldBottomBound = sim.worldBottomBound;
         double worldTopBound = sim.worldTopBound;
         double worldLeftBound = sim.worldLeftBound;
         double worldRightBound = sim.worldRightBound;
         boolean intersecting = false;
+
         for (int i = 0; i < xPoints.size(); i = i + 1) {
             double x = xPoints.get(i) + posX;
             double y = yPoints.get(i) + posY;
+            int nextIndex = mod(i + 1, xPoints.size());
             if (y >= worldBottomBound) {
-                if (Math.abs(worldBottomBound - y) > Math.abs(bottom)){
-                    bottom = worldBottomBound - y;
-                    myObject.MTVs.add(new Double[]{0.0, bottom - sim.MTV_EPSILON});
-                    myObject.contactPoints.add(new Double[]{x, worldBottomBound});
-                    myObject.collidingIDs.add(-1);
-                    intersecting = true;
+                myObject.MTVs.add(new Double[]{0.0, worldBottomBound - y - sim.MTV_EPSILON});
+                myObject.collidingIDs.add(-1);
+                if (yPoints.get(nextIndex) + posY >= worldBottomBound) {
+                    myObject.contactPoints.add(new Double[]{0.5 * (x + xPoints.get(nextIndex) + posX), 0.5 * (y + yPoints.get(nextIndex) + posY)});
+                    i++;
                 }
+                else myObject.contactPoints.add(new Double[]{x, y});
+                intersecting = true;
             }
             if (y <= worldTopBound) {
-                if (Math.abs(worldTopBound - y) > Math.abs(top)){
-                    top = worldTopBound - y;
-                    myObject.MTVs.add(new Double[]{0.0, top + sim.MTV_EPSILON});
-                    myObject.contactPoints.add(new Double[]{x, worldTopBound});
-                    myObject.collidingIDs.add(-1);
-                    intersecting = true;
+                myObject.MTVs.add(new Double[]{0.0, worldTopBound - y + sim.MTV_EPSILON});
+                myObject.collidingIDs.add(-1);
+                if (yPoints.get(nextIndex) + posY <= worldBottomBound) {
+                    myObject.contactPoints.add(new Double[]{0.5 * (x + xPoints.get(nextIndex) + posX), 0.5 * (y + yPoints.get(nextIndex) + posY)});
+                    i++;
                 }
+                else myObject.contactPoints.add(new Double[]{x, y});
+                intersecting = true;
             }
             if (x <= worldLeftBound) {
-                if (Math.abs(worldLeftBound - x) > Math.abs(left)){
-                    left = worldLeftBound - x;
-                    myObject.MTVs.add(new Double[]{left + sim.MTV_EPSILON, 0.0});
-                    myObject.contactPoints.add(new Double[]{worldLeftBound, y});
-                    myObject.collidingIDs.add(-1);
-                    intersecting = true;
+                myObject.MTVs.add(new Double[]{worldLeftBound - x + sim.MTV_EPSILON, 0.0});
+                myObject.collidingIDs.add(-1);
+                if (xPoints.get(nextIndex) + posY <= worldLeftBound) {
+                    myObject.contactPoints.add(new Double[]{0.5 * (x + xPoints.get(nextIndex) + posX), 0.5 * (y + yPoints.get(nextIndex) + posY)});
+                    i++;
                 }
+                else myObject.contactPoints.add(new Double[]{x, y});
+                intersecting = true;
             }
             if (x >= worldRightBound) {
-                if (Math.abs(worldRightBound - x) > Math.abs(right)){
-                    right = worldRightBound - x;
-                    myObject.MTVs.add(new Double[]{right - sim.MTV_EPSILON, 0.0});
-                    myObject.contactPoints.add(new Double[]{worldRightBound, y});
-                    myObject.collidingIDs.add(-1);
-                    intersecting = true;
+                myObject.MTVs.add(new Double[]{worldRightBound - x - sim.MTV_EPSILON, 0.0});
+                myObject.collidingIDs.add(-1);
+                if (xPoints.get(nextIndex) + posX >= worldRightBound) {
+                    myObject.contactPoints.add(new Double[]{0.5 * (x + xPoints.get(nextIndex) + posX), 0.5 * (y + yPoints.get(nextIndex) + posY)});
+                    i++;
                 }
+                else myObject.contactPoints.add(new Double[]{x, y});
+                intersecting = true;
             }
         }
         return(intersecting);
@@ -355,10 +448,8 @@ class Polygon extends GeometricType {
             if (Double.isNaN(bottomBoundBox) || yPoints.get(i) > bottomBoundBox) {
                 bottomBoundBox = yPoints.get(i);
             }
-            if (triangles.get(i).doesExist()) {
-                triangles.get(i).rotate(theta);
-            }
         }
+        for (ConvexPolygon part : convexDecomposition) part.rotate(theta);
     }
 
     @Override

@@ -10,5 +10,8 @@ enum JointType {
     //Weld joints apply the same effects as pin joints, but enforce an equal application of movement on all rigidbodies connected via weld joints, which form a new compound body.
     Weld,
     //Revolute joints are similar to pin joints, except for the fact that they have the ability to limit the rotation about the connection point via the angle made with the center of mass.
-    Revolute
+    Revolute,
+    //Translational joints apply impulses to enforce the rule that the point on one rigidbody remains on a directional vector that solely rotates about the other rigidbody.
+    Translational
+
 }
