@@ -1,6 +1,6 @@
 package PhysicsSim;
 
- public class Endpoint {
+class Endpoint {
     public double value;
     public final boolean isMin;
     public final int boxIndex;

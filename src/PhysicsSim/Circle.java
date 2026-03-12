@@ -2,6 +2,7 @@ package PhysicsSim;
 
 class Circle extends GeometricType {
     private final double radius;
+    public double[] angularPosTest = new double[]{50.0, 0.0};
     public Circle(double radius) {
         super(Rigidbody.num);
         this.radius = radius;
@@ -24,30 +25,32 @@ class Circle extends GeometricType {
         Rigidbody otherObject = Rigidbody.get(otherGeometry.getParentRigidbodyID());
         Rigidbody myObject = Rigidbody.get(getParentRigidbodyID());
         double MTV_EPSILON = Simulation.get(myObject.simID).MTV_EPSILON;
+        if (otherObject.simID != myObject.simID) return false;
         if (otherGeometry instanceof Polygon) {
             Polygon other = (Polygon) otherGeometry;
             boolean intersecting = false;
-            for (int i = 0; i < other.getNumPoints(); i = i + 1) {
-                if (other.triangles.get(i).doesExist()) {
-                    Triplet results = other.triangles.get(i).checkCollisions(this);
-                    if (results.getFirstBoolean()) {
-                        intersecting = true;
-                        myObject.contactPoints.add(results.getThirdDoubleArrayReference());
-                        Double[] MTV = results.getSecondDoubleArrayReference();
-                        if (otherObject.isMovable()){
-                            double magnitude1 = Math.sqrt(MTV[0] * MTV[0] + MTV[1] * MTV[1]);
-                            double magnitude2 = -(magnitude1 - MTV_EPSILON) * (otherObject.getMass() / myObject.getMass()) - MTV_EPSILON;
-                            MTV[0] = MTV[0] * (magnitude2 / magnitude1);
-                            MTV[1] = MTV[1] * (magnitude2 / magnitude1);
-                            myObject.MTVs.add(MTV);
-                            myObject.collidingIDs.add(otherObject.getID());
-                        }
-                        else {
-                            myObject.MTVs.add(MTV);
-                            myObject.collidingIDs.add(otherObject.getID());
-                        }
-
+            for (ConvexPolygon otherConvex : other.convexDecomposition) {
+                Triplet results = otherConvex.checkCollisions(this);
+                if (results.getFirstBoolean()) {
+                    intersecting = true;
+                    myObject.contactPoints.add(results.getThirdDoubleArrayReference());
+                    Double[] MTV = results.getSecondDoubleArrayReference();
+                    if (otherObject.isMovable()){
+                        double magnitude1 = Math.sqrt(MTV[0] * MTV[0] + MTV[1] * MTV[1]);
+                        double magnitude2 = -(magnitude1) * (otherObject.getCompoundMass() / myObject.getCompoundMass());
+                        MTV[0] = MTV[0] * (magnitude2 / magnitude1);
+                        MTV[1] = MTV[1] * (magnitude2 / magnitude1);
+                        myObject.MTVs.add(MTV);
+                        myObject.collidingIDs.add(otherObject.getID());
                     }
+                    else {
+                        double multiplier = -(otherObject.getCompoundMass() + myObject.getCompoundMass()) / myObject.getCompoundMass();
+                        MTV[0] *= multiplier;
+                        MTV[1] *= multiplier;
+                        myObject.MTVs.add(MTV);
+                        myObject.collidingIDs.add(otherObject.getID());
+                    }
+
                 }
             }
             return(intersecting);
@@ -65,7 +68,7 @@ class Circle extends GeometricType {
                 Double[] pointOfContact = new Double[2];
                 double temp = overlap;
                 if (otherObject.isMovable()){
-                    temp = (overlap / distance) * (otherObject.getMass() / (otherObject.getMass() + myObject.getMass()));
+                    temp = (overlap / distance) * (otherObject.getCompoundMass() / (otherObject.getCompoundMass() + myObject.getCompoundMass()));
                 }
                 else {
                     temp = (overlap / distance);
@@ -89,30 +92,42 @@ class Circle extends GeometricType {
     }
 
     @Override
-    boolean findCollisions(Softbody softbody) {
-        boolean intersecting = false;
-        Rigidbody rigidbody = Rigidbody.get(getParentRigidbodyID());
-        //returns (intersecting, MTV, edgeIndex (maps n -> -n - 2
-        Triplet results = softbody.resolvePointInside(new double[]{rigidbody.getPosX(), rigidbody.getPosY()}, radius);
-        if (results.getFirstBoolean()) {
-            Double[] MTV = new Double[2];
-            double multiplier = (Rigidbody.getMass(results.getThirdInt()) / (Rigidbody.getMass(results.getThirdInt()) + rigidbody.getMass()));
-            MTV[0] = results.getSecondDoubleArray()[0] * multiplier;
-            MTV[1] = results.getSecondDoubleArray()[1] * multiplier;
-            double magnitude = Math.sqrt(MTV[0] * MTV[0] + MTV[1] * MTV[1]);
-            double nX = MTV[0] / magnitude;
-            double nY = MTV[1] / magnitude;
-            if (Double.isNaN(nX) || Double.isNaN(nY)) {
-                nX = 0.0;
-                nY = 0.0;
+    boolean findCollisions(Joint solidJoint) {
+        double lineThickness = Simulation.get(solidJoint.parent.simID).solidJointCollisionLineThickness;
+        lineThickness = Math.min(Math.min(lineThickness, solidJoint.parent.geometry.getLargestDistance()), solidJoint.connection.geometry.getLargestDistance());
+        double x1 = solidJoint.parent.getPosX() + solidJoint.offsetFromCMParent[0];
+        double x2 = solidJoint.connection.getPosX() + solidJoint.offsetFromCMOther[0];
+        double y1 = solidJoint.parent.getPosY() + solidJoint.offsetFromCMParent[1];
+        double y2 = solidJoint.connection.getPosY() + solidJoint.offsetFromCMOther[1];
+        double posX = Rigidbody.get(getParentRigidbodyID()).getPosX();
+        double posY = Rigidbody.get(getParentRigidbodyID()).getPosY();
+        double magnitude = Math.sqrt((x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2));
+        double nX = -(y2 - y1) / magnitude;
+        double nY = (x2 - x1) / magnitude;
+        double MTV_EPSILON = Rigidbody.get(getParentRigidbodyID()).sim.MTV_EPSILON;
+        double dotProd = (posX - x1) * nX + (posY - y1) * nY;
+        double orthoDotProd = (posX - x1) * nY + (posY - y1) * -nX;
+        if (Math.abs(dotProd) - radius <= lineThickness && orthoDotProd >= 0.0 && orthoDotProd <= magnitude) {
+            Rigidbody rigidbody = Rigidbody.get(getParentRigidbodyID());
+            double inverseMass = 0.0;
+            if (solidJoint.connection.isMovable() && solidJoint.parent.isMovable()) {
+                inverseMass = 1.0 / (solidJoint.parent.getMass() + solidJoint.connection.getMass() + rigidbody.getMass());
             }
-            Double[] contactPoint = new Double[]{rigidbody.getPosX() + MTV[0] - radius * nX, rigidbody.getPosY() + MTV[1] - radius * nY};
-            rigidbody.contactPoints.add(contactPoint);
+            MTV_EPSILON *= (solidJoint.parent.getCompoundMass() + solidJoint.connection.getCompoundMass()) * inverseMass;
+            double multiplier = (lineThickness - Math.abs(dotProd) + radius + MTV_EPSILON) * Math.signum(dotProd);
+            Double[] MTV = new Double[]{multiplier * nX, multiplier * nY};
             rigidbody.MTVs.add(MTV);
-            rigidbody.collidingIDs.add(results.getThirdInt());
-            intersecting = true;
+            rigidbody.MTVs.add(MTV);
+            magnitude = Math.sqrt(MTV[0] * MTV[0] + MTV[1] * MTV[1]);
+            Double[] contactPoint = new Double[]{radius * -(MTV[0] / magnitude) + posX + MTV[0], radius * -(MTV[1] / magnitude) + posY + MTV[1]};
+            rigidbody.contactPoints.add(contactPoint);
+            //this is the way that the second contact point is encoded
+            rigidbody.contactPoints.add(new Double[]{Double.NaN, 0.0});
+            rigidbody.collidingIDs.add(-solidJoint.parent.ID - 2);
+            rigidbody.collidingIDs.add(-solidJoint.connection.ID - 2);
+            return true;
         }
-        return(intersecting);
+        return false;
     }
 
     @Override
@@ -128,25 +143,25 @@ class Circle extends GeometricType {
         double worldRightBound = sim.worldRightBound;
         if (posY + radius >= worldBottomBound) {
             myObject.MTVs.add(new Double[]{0.0, worldBottomBound - (posY + radius) - sim.MTV_EPSILON});
-            myObject.contactPoints.add(new Double[]{posX, worldBottomBound});
+            myObject.contactPoints.add(new Double[]{posX, posY + radius});
             myObject.collidingIDs.add(-1);
             intersecting = true;
         }
         if (posY - radius <= worldTopBound) {
             myObject.MTVs.add(new Double[]{0.0, worldTopBound - (posY - radius) + sim.MTV_EPSILON});
-            myObject.contactPoints.add(new Double[]{posX, worldTopBound});
+            myObject.contactPoints.add(new Double[]{posX, posY - radius});
             myObject.collidingIDs.add(-1);
             intersecting = true;
         }
         if (posX - radius <= worldLeftBound) {
             myObject.MTVs.add(new Double[]{worldLeftBound - (posX - radius) + sim.MTV_EPSILON, 0.0});
-            myObject.contactPoints.add(new Double[]{worldLeftBound, posY});
+            myObject.contactPoints.add(new Double[]{posX - radius, posY});
             myObject.collidingIDs.add(-1);
             intersecting = true;
         }
         if (posX + radius >= worldRightBound) {
             myObject.MTVs.add(new Double[]{worldRightBound - (posX + radius) - sim.MTV_EPSILON, 0.0});
-            myObject.contactPoints.add(new Double[]{worldRightBound, posY});
+            myObject.contactPoints.add(new Double[]{posX + radius, posY});
             myObject.collidingIDs.add(-1);
             intersecting = true;
         }
@@ -155,7 +170,12 @@ class Circle extends GeometricType {
 
     @Override
     void rotateAroundCenter(double theta) {
-
+        double cos = Math.cos(theta);
+        double sin = Math.sin(theta);
+        double x = angularPosTest[0];
+        double y = angularPosTest[1];
+        angularPosTest[0] = x * cos - y * sin;
+        angularPosTest[1] = x * sin + y * cos;
     }
 
     @Override
@@ -173,6 +193,9 @@ class Circle extends GeometricType {
         double forceMagnitude = 0.5 * AIR_DENSITY * crossArea * DRAG_COEFFICIENT * magnitude * magnitude;
         double uX = v[0] / magnitude;
         double uY = v[1] / magnitude;
+        //the 10.0 here is arbitrary, and is a stand-in to prevent quick changes in velocity (impulses) from causing
+        //the simplified drag force from "over-correcting"
+        forceMagnitude = Math.min(Rigidbody.get(getParentRigidbodyID()).getMass() * magnitude * 10.0, forceMagnitude);
         double[] fD = new double[]{-uX * forceMagnitude, -uY * forceMagnitude};
         if (Double.isNaN(fD[0])) fD[0] = 0.0;
         if (Double.isNaN(fD[1])) fD[1] = 0.0;

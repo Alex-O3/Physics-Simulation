@@ -1,11 +1,11 @@
 package PhysicsSim;
 import PhysicsSim.*;
 
-public class AABBox {
+class AABBox {
     public int parentID = -1;
     public int boxID;
-    //0 - infinity are rigidbodies, even negative numbers are points, and odd negative numbers are softbodies
-    //very important: this is different from the colliding ID convention in how the odd negative IDs are used
+    //0 - infinity are rigidbodies, -1 for solid joints
+    public Joint solidJoint = null;
     public Endpoint minX;
     public Endpoint maxX;
     public Endpoint minY;
@@ -18,6 +18,13 @@ public class AABBox {
         minY = new Endpoint(boxIndex, true);
         maxY = new Endpoint(boxIndex, false);
         updateBox();
+    }
+    public AABBox(Joint solidJoint, int boxIndex) {
+        this.solidJoint = solidJoint;
+        minX = new Endpoint(boxIndex, true);
+        maxX = new Endpoint(boxIndex, false);
+        minY = new Endpoint(boxIndex, true);
+        maxY = new Endpoint(boxIndex, false);
     }
     public void updateBox() {
         if (parentID >= 0) {
@@ -32,40 +39,58 @@ public class AABBox {
             minY.value = Softbody.get(-parentID - 2).minY;
             maxY.value = Softbody.get(-parentID - 2).maxY;
         }
+        else if (solidJoint != null) {
+            double x1 = solidJoint.parent.getPosX() + solidJoint.offsetFromCMParent[0];
+            double x2 = solidJoint.connection.getPosX() + solidJoint.offsetFromCMOther[0];
+            double y1 = solidJoint.parent.getPosY() + solidJoint.offsetFromCMParent[1];
+            double y2 = solidJoint.connection.getPosY() + solidJoint.offsetFromCMOther[1];
+            double lineThickness = Simulation.get(solidJoint.parent.simID).solidJointCollisionLineThickness;
+            minX.value = Math.min(x1, x2) - lineThickness;
+            maxX.value = Math.max(x1, x2) + lineThickness;
+            minY.value = Math.min(y1, y2) - lineThickness;
+            maxY.value = Math.max(y1, y2) + lineThickness;
+        }
     }
 
     public void findCollisions(AABBox aabb) {
-        int type = 0; //0 for rigidbodies and 1 for softbodies.
+        int type = 0; //0 for rigidbodies and 1 for solid joints
         int index = parentID;
-        if (index <= -2) {
+        if (index == -1 && solidJoint != null) {
             type = 1;
-            index = -index - 2;
         }
 
         int otherType = 0;
         int otherIndex = aabb.parentID;
-        if (otherIndex <= -2) {
+        if (otherIndex == -1 && aabb.solidJoint != null) {
             otherType = 1;
-            otherIndex = -otherIndex - 2;
         }
         switch (type) {
             case(0): {
                 switch (otherType) {
                     case(0): {
-                        Rigidbody.get(index).checkCollisions(Rigidbody.get(otherIndex));
-                        Rigidbody.get(otherIndex).checkCollisions(Rigidbody.get(index));
+                        if (Rigidbody.get(index).simID != Rigidbody.get(otherIndex).simID) return;
+                        if (Rigidbody.get(index).isMovable() || Rigidbody.get(index).isHitbox) Rigidbody.get(index).checkCollisions(Rigidbody.get(otherIndex));
+                        if (Rigidbody.get(otherIndex).isMovable() || Rigidbody.get(otherIndex).isHitbox) Rigidbody.get(otherIndex).checkCollisions(Rigidbody.get(index));
                         break;
                     }
                     case(1): {
-                        if (Softbody.get(otherIndex).boundaryCollision) Rigidbody.get(index).checkCollisions(Softbody.get(otherIndex));
+                        Rigidbody rigidbody = Rigidbody.get(index);
+                        if (rigidbody.simID != aabb.solidJoint.parent.simID || rigidbody.simID != aabb.solidJoint.connection.simID) return;
+                        if (!rigidbody.isHitbox && aabb.solidJoint.connection != rigidbody && aabb.solidJoint.parent != rigidbody) {
+                            rigidbody.checkCollisions(aabb.solidJoint);
+                        }
                         break;
                     }
                 }
                 break;
             }
             case(1): {
-                if (Softbody.get(index).boundaryCollision) if (otherType == 0) {
-                    Rigidbody.get(otherIndex).checkCollisions(Softbody.get(index));
+                if (otherType == 0) {
+                    Rigidbody rigidbody = Rigidbody.get(otherIndex);
+                    if (rigidbody.simID != solidJoint.connection.simID || rigidbody.simID != solidJoint.parent.simID) return;
+                    if (!rigidbody.isHitbox && solidJoint.connection != rigidbody && solidJoint.parent != rigidbody) {
+                        rigidbody.checkCollisions(solidJoint);
+                    }
                 }
                 break;
             }

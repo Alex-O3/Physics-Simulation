@@ -1,6 +1,6 @@
 package PhysicsSim;
 
-public enum SoftbodyType {
+enum SoftbodyType {
     SpringMass,
     PressureSpring,
     ShapeMatchSolid,

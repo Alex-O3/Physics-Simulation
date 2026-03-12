@@ -1,7 +1,7 @@
 package PhysicsSim;
 import java.util.ArrayList;
 
- public class BVHNode {
+class BVHNode {
     public final BVHTreeRoot root;
     public final BVHNode leftNode;
     public final BVHNode rightNode;
@@ -45,7 +45,7 @@ import java.util.ArrayList;
     public void traverseTree(AABBox box) {
         if (startIndex == endIndex) {
             if (box.boxID < startIndex) {
-                if (checkIfSameSoftbody(box.boxID, root.aabbs.get(startIndex).boxID)) return;
+                if (checkIfSameJoint(box.boxID, root.aabbs.get(startIndex).boxID)) return;
                 root.pairs.add(box.boxID);
                 root.pairs.add(root.aabbs.get(startIndex).boxID);
             }
@@ -55,14 +55,14 @@ import java.util.ArrayList;
             if (rightNode.checkOverlapping(box)) rightNode.traverseTree(box);
         }
     }
-    private boolean checkIfSameSoftbody(int boxIndex1, int boxIndex2) {
+    private boolean checkIfSameJoint(int boxIndex1, int boxIndex2) {
         ArrayList<AABBox> aabbs = root.aabbs;
+        Joint joint1 = aabbs.get(boxIndex1).solidJoint;
+        Joint joint2 = aabbs.get(boxIndex2).solidJoint;
         int parentID1 = aabbs.get(boxIndex1).parentID;
         int parentID2 = aabbs.get(boxIndex2).parentID;
-        if (parentID1 <= -2 && parentID2 <= -2) return(parentID1 == parentID2);
-        else if (parentID1 <= -2) return(-parentID1 - 2 == Rigidbody.get(parentID2).parentSoftbody);
-        else if (parentID2 <= -2) return(-parentID2 - 2 == Rigidbody.get(parentID1).parentSoftbody);
-        return(false);
+        Joint.checkIfSameJoint(parentID1, parentID2, joint1, joint2);
+        return false;
     }
     public static int getMostSignificantBitIndexFromLeft(long a, int startIndexFromLeft) {
         long comparison = Long.MAX_VALUE - (Long.MAX_VALUE >> 1);

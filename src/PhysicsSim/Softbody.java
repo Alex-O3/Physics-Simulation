@@ -27,11 +27,8 @@ class Softbody {
     private final double initialPressure;
     private final boolean hasPressure;
     private final boolean isShapeMatch;
-    public boolean boundaryCollision = true;
-    public double MTV_EPSILON = 0.01625;
     public double SHAPE_MATCH_STRENGTH = 100.0;
     public double SHAPE_MATCH_DAMPING = 0.25;
-    public double DAMP_COEFFICIENT = 0.6;
 
     public Softbody(SoftbodyType type, double[] borderX, double[] borderY, double[] movingMotion, double pointRadius, double targetDensity, double stiffness, double initialPressure, double mass, Color color, double max_dist_multiplier, double min_dist_multiplier, int simID) {
         this.simID = simID;
@@ -130,6 +127,7 @@ class Softbody {
             //create a point at the proposed location as the seed from which the lattice triangular structure of the softbody will be generated
             Rigidbody seedPoint = new Rigidbody(new Circle(pointRadius), new double[]{pointTest[0], pointTest[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 1.0, color, simID);
             Simulation.get(simID).physicsObjects.add(new PhysicsObject(seedPoint));
+            Simulation.get(simID).rigidbodyObjectsIDToGlobalID.add(Simulation.get(simID).physicsObjects.size() - 1);
             addMember(seedPoint, onBoundary);
 
             //start the lattice structure generation process
@@ -150,13 +148,14 @@ class Softbody {
                     Color a = color;
                     Rigidbody generatedPoint = new Rigidbody(new Circle(pointRadius), new double[]{x, y, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 1.0, a, simID);
                     Simulation.get(simID).physicsObjects.add(new PhysicsObject(generatedPoint));
+                    Simulation.get(simID).rigidbodyObjectsIDToGlobalID.add(Simulation.get(simID).physicsObjects.size() - 1);
                     addMember(generatedPoint, true);
-                    if (lastIndex != -1) Rigidbody.get(lastIndex).springAttach(generatedPoint, 1.0, 1.0);
+                    if (lastIndex != -1) Rigidbody.get(lastIndex).springAttachSoftbodyConstruction(generatedPoint);
                     else firstIndex = generatedPoint.ID;
                     lastIndex = generatedPoint.ID;
                 }
             }
-            Rigidbody.get(lastIndex).springAttach(Rigidbody.get(firstIndex), 1.0, 1.0);
+            Rigidbody.get(lastIndex).springAttachSoftbodyConstruction(Rigidbody.get(firstIndex));
         }
 
 
@@ -169,7 +168,7 @@ class Softbody {
             }
         }
 
-        double checkRadius = r * Math.sqrt(2.0) + 0.01;
+        double checkRadius = r * Math.sqrt(2.0) + Simulation.get(simID).MTV_EPSILON;
         //the sqrt(2) covers diagonal connections while the 0.01 fights floating point precision errors
         if (type == SoftbodyType.SpringMass || type == SoftbodyType.ShapeMatchSolid) sortBoundaryMembers(checkRadius);
 
@@ -183,23 +182,22 @@ class Softbody {
         }
         double massPer = mass / members.size();
         double HOOKE_CONSTANT = stiffness * massPer;
-        double SPRING_DAMPING = DAMP_COEFFICIENT * Math.sqrt(HOOKE_CONSTANT * massPer);
+        double SPRING_DAMPING = Simulation.get(simID).DAMPING_COEFFICIENT_RELATOR * Math.sqrt(HOOKE_CONSTANT * massPer);
         for (int i = 0; i < members.size(); i = i + 1) {
             //Assign motion and mass
             members.get(i).mass = massPer;
             members.get(i).setMovingMotion(movingMotion);
             members.get(i).lockRotation(true);
-            members.get(i).setAllSpringJoints(HOOKE_CONSTANT, SPRING_DAMPING, min_dist_multiplier, max_dist_multiplier);
             members.get(i).setRepulseRadius(Simulation.get(simID).REPULSE_RADIUS_MULTIPLIER);
 
             //connect to other nearby points
-            if (members.get(i).isAttached) for (int j = 0; j < members.size(); j = j + 1) {
+            if (type != SoftbodyType.PressureSpring && type != SoftbodyType.ShapeMatchHollow && members.get(i).isAttached) for (int j = 0; j < members.size(); j = j + 1) {
                 if (i != j && members.get(j).isAttached) {
                     double distance = (members.get(i).getPosX() - members.get(j).getPosX()) * (members.get(i).getPosX() - members.get(j).getPosX());
                     distance = distance + (members.get(i).getPosY() - members.get(j).getPosY()) * (members.get(i).getPosY() - members.get(j).getPosY());
                     distance = Math.sqrt(distance);
                     if (distance <= checkRadius) {
-                        members.get(i).springAttach(members.get(j), HOOKE_CONSTANT, SPRING_DAMPING);
+                        members.get(i).springAttachSoftbodyConstruction(members.get(j));
                     }
                 }
             }
@@ -208,11 +206,18 @@ class Softbody {
             if (isShapeMatch) {
                 idealShapeVectors.add(new Double[]{members.get(i).getPosX() - cX, members.get(i).getPosY() - cY});
             }
+
+            members.get(i).setAllSoftbodyJoints(HOOKE_CONSTANT, SPRING_DAMPING, min_dist_multiplier, max_dist_multiplier);
+        }
+        for (Integer boundaryMember : boundaryMembers) {
+            for (Joint spring : Rigidbody.get(boundaryMember).attachments) {
+                if (spring.connection.futureBoundary) {
+                    spring.makeSolid();
+                }
+            }
         }
 
         calculateProperties();
-        Simulation.get(simID).getSAPCell(0, 0).addBox(-ID - 2);
-        Simulation.get(simID).BVHtrees.get(0).addBox(-ID - 2);
     }
     public static void step(int simID) {
         for (int i = 0; i < num; i = i + 1) {
@@ -252,12 +257,17 @@ class Softbody {
     private void springTowardsShapeMatch() {
         double crossSum = 0.0;
         double dotSum = 0.0;
+        double[] cMvelocity = new double[]{0.0,0.0};
         for (int i = 0; i < members.size(); i = i + 1) {
             double dx = members.get(i).getPosX() - cM[0];
             double dy = members.get(i).getPosY() - cM[1];
             crossSum = crossSum + (dx * -idealShapeVectors.get(i)[1] + dy * idealShapeVectors.get(i)[0]);
             dotSum = dotSum + (dx * idealShapeVectors.get(i)[0] + dy * idealShapeVectors.get(i)[1]);
+            cMvelocity[0] += members.get(i).getVX() * members.get(i).getMass();
+            cMvelocity[1] += members.get(i).getVY() * members.get(i).getMass();
         }
+        cMvelocity[0] /= mass;
+        cMvelocity[1] /= mass;
         double theta = Math.atan2(crossSum, dotSum);
 
         //iterate through the points and apply a spring force towards the ideal position
@@ -267,7 +277,7 @@ class Softbody {
             double dx = iX - (members.get(i).getPosX() - cM[0]);
             double dy = iY - (members.get(i).getPosY() - cM[1]);
             double distance = Math.sqrt(dx * dx + dy * dy);
-            double magnitude1 = (members.get(i).getVX() * dx + members.get(i).getVY() * dy) / distance;
+            double magnitude1 = ((members.get(i).getVX() - cMvelocity[0]) * dx + (members.get(i).getVY() - cMvelocity[1]) * dy) / distance;
             if (magnitude1 < 0.0) magnitude1 = 0.0;
             double temp1 = magnitude1 * SHAPE_MATCH_DAMPING;
             double temp2 = SHAPE_MATCH_STRENGTH * distance;
@@ -462,58 +472,13 @@ class Softbody {
         }
         return (raycastCount % 2 == 1);
     }
-    //returns (intersecting, MTV, rigidbody ID for edge (but n -> -n - 2 for identification purposes)
-    public Triplet resolvePointInside(double[] point, double radius) {
-        boolean intersecting = false;
-        int size = boundaryMembers.size();
-        double closestEdgeDistance = Double.NaN;
-        double closestEdgeNX = Double.NaN;
-        double closestEdgeNY = Double.NaN;
-        int closestEdgeIndex = -1;
-        boolean invertNormals = findSignedArea() < 0.0;
-        if (radius <= 0.0) intersecting = pointInside(point);
-        boolean insideCheck = false;
-        if (radius > 0.0) insideCheck = pointInside(point);
-        if (radius > 0.0 || intersecting) for (int i = 0; i < size; i = i + 1) {
-            double x1 = Rigidbody.get(boundaryMembers.get(i)).getPosX();
-            double x2 = Rigidbody.get(boundaryMembers.get((i + 1) % size)).getPosX();
-            double y1 = Rigidbody.get(boundaryMembers.get(i)).getPosY();
-            double y2 = Rigidbody.get(boundaryMembers.get((i + 1) % size)).getPosY();
-            double nX = -(y2 - y1);
-            double nY = x2 - x1;
-            double magnitude = Math.sqrt(nX * nX + nY * nY);
-            nX = nX / magnitude;
-            nY = nY / magnitude;
-            if (invertNormals) {
-                nX = -nX;
-                nY = -nY;
-            }
-
-            double distance = (point[0] - x1) * nX + (point[1] - y1) * nY;
-            distance -= radius;
-            if ((Double.isNaN(closestEdgeDistance) || distance > closestEdgeDistance) && distance < 0.0 && (radius <= 0.0 || distance >= -radius || insideCheck)) {
-                double orthoDotPoint = point[0] * -nY + point[1] * nX;
-                double orthoDotMin = x1 * -nY + y1 * nX;
-                double orthoDotMax = x2 * -nY + y2 * nX;
-                if (orthoDotMax < orthoDotMin) {
-                    double temp1 = orthoDotMax;
-                    orthoDotMax = orthoDotMin;
-                    orthoDotMin = temp1;
-                }
-                if (orthoDotPoint > orthoDotMin && orthoDotPoint < orthoDotMax) {
-                    closestEdgeDistance = distance;
-                    closestEdgeNX = nX;
-                    closestEdgeNY = nY;
-                    closestEdgeIndex = i;
-                    intersecting = true;
-                }
-            }
+    public SoftbodyType getType() {
+        if (hasPressure) return SoftbodyType.PressureSpring;
+        if (isShapeMatch) {
+            if (members.size() > boundaryMembers.size()) return SoftbodyType.ShapeMatchSolid;
+            else return SoftbodyType.ShapeMatchHollow;
         }
-        if (closestEdgeIndex == -1) intersecting = false;
-        closestEdgeDistance *= 1.0 + (MTV_EPSILON / Math.abs(closestEdgeDistance));
-        double[] MTV = new double[]{-closestEdgeDistance * closestEdgeNX, -closestEdgeDistance * closestEdgeNY};
-        if (closestEdgeIndex >= 0) closestEdgeIndex = -boundaryMembers.get(closestEdgeIndex) - 2;
-        return (new Triplet(intersecting, MTV, closestEdgeIndex));
+        return SoftbodyType.SpringMass;
     }
 
 
@@ -534,6 +499,9 @@ class Softbody {
     public Rigidbody getMember(int index) {
         return(members.get(index));
     }
+    public Rigidbody getBoundaryMember(int index) {
+        return (Rigidbody.get(boundaryMembers.get(index)));
+    }
     public int size() {
         return(members.size());
     }
@@ -542,5 +510,9 @@ class Softbody {
     }
     public static Softbody get(int index) {
         return(softbodies.get(index));
+    }
+
+    public double getInitialPressure() {
+        return initialPressure;
     }
 }

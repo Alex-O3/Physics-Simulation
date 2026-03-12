@@ -1,7 +1,7 @@
 package PhysicsSim;
 import java.util.ArrayList;
 
-public class BVHTreeRoot {
+class BVHTreeRoot {
     public int simID;
     public ArrayList<AABBox> aabbs = new ArrayList<>();
     public final int pow2numCells;
@@ -18,6 +18,10 @@ public class BVHTreeRoot {
 
     public void addBox(int parentID) {
         AABBox aabb = new AABBox(parentID, aabbs.size());
+        aabbs.add(aabb);
+    }
+    public void addBox(Joint solidJoint) {
+        AABBox aabb = new AABBox(solidJoint, aabbs.size());
         aabbs.add(aabb);
     }
     public void createTree() {

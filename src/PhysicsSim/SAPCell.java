@@ -2,7 +2,7 @@ package PhysicsSim;
 
 import java.util.ArrayList;
 
- public class SAPCell {
+class SAPCell {
     public final int simID;
     public final int x;
     public final int y;
@@ -19,6 +19,14 @@ import java.util.ArrayList;
     }
     public void addBox(int parentID) {
         AABBox aabb = new AABBox(parentID, aabbs.size());
+        aabbs.add(aabb);
+        endpointsX.add(aabb.minX);
+        endpointsX.add(aabb.maxX);
+        endpointsY.add(aabb.minY);
+        endpointsY.add(aabb.maxY);
+    }
+    public void addBox(Joint solidJoint) {
+        AABBox aabb = new AABBox(solidJoint, aabbs.size());
         aabbs.add(aabb);
         endpointsX.add(aabb.minX);
         endpointsX.add(aabb.maxX);
@@ -44,7 +52,7 @@ import java.util.ArrayList;
                     double y2min = aabbs.get(activelyChecked.get(j)).minY.value;
                     double y2max = aabbs.get(activelyChecked.get(j)).maxY.value;
                     if (y1min <= y2max && y1max >= y2min) {
-                        if (checkIfSameSoftbody(endpoint.boxIndex, activelyChecked.get(j))) continue;
+                        if (checkIfSameJoint(endpoint.boxIndex, activelyChecked.get(j))) continue;
 
                         pairs.add(endpoint.boxIndex);
                         pairs.add(activelyChecked.get(j));
@@ -59,13 +67,12 @@ import java.util.ArrayList;
         activelyChecked.clear();
     }
 
-     private boolean checkIfSameSoftbody(int boxIndex1, int boxIndex2) {
+     private boolean checkIfSameJoint(int boxIndex1, int boxIndex2) {
+        Joint joint1 = aabbs.get(boxIndex1).solidJoint;
+        Joint joint2 = aabbs.get(boxIndex2).solidJoint;
         int parentID1 = aabbs.get(boxIndex1).parentID;
         int parentID2 = aabbs.get(boxIndex2).parentID;
-        if (parentID1 <= -2 && parentID2 <= -2) return(parentID1 == parentID2);
-        else if (parentID1 <= -2) return(-parentID1 - 2 == Rigidbody.get(parentID2).parentSoftbody);
-        else if (parentID2 <= -2) return(-parentID2 - 2 == Rigidbody.get(parentID1).parentSoftbody);
-        return(false);
+        return Joint.checkIfSameJoint(parentID1, parentID2, joint1, joint2);
      }
     private static void insertionSort(ArrayList<Endpoint> endpointsList) {
         for (int i = 1; i < endpointsList.size(); i = i + 1) {
