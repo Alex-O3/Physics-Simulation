@@ -8,7 +8,9 @@ class CompoundBody {
     double mass;
     double[] cM;
     boolean movable = true;
-    boolean lockedRotation = false;
+    private boolean lockedRotation = false;
+    private double[] controllerJerk = new double[2];
+
     public CompoundBody(Rigidbody firstMember) {
         expand(firstMember);
     }
@@ -89,9 +91,11 @@ class CompoundBody {
 
             member.newvX = totalLinearVelocity[0] + v[0];
             member.newvY = totalLinearVelocity[1] + v[1];
-            member.newaX = totalLinearAcceleration[0] + a[0];
-            member.newaY = totalLinearAcceleration[1] + a[1];
+            member.newaX = totalLinearAcceleration[0] + a[0] + controllerJerk[0];
+            member.newaY = totalLinearAcceleration[1] + a[1] + controllerJerk[1];
         }
+        controllerJerk[0] = 0.0;
+        controllerJerk[1] = 0.0;
     }
 
     public void setPosition(double x, double y) {
@@ -162,5 +166,9 @@ class CompoundBody {
             member.newaX = totalLinearAcceleration[0] + a[0];
             member.newaY = totalLinearAcceleration[1] + a[1];
         }
+    }
+    public void addControllerJerk(double[] jerk) {
+        controllerJerk[0] += jerk[0];
+        controllerJerk[1] += jerk[1];
     }
 }

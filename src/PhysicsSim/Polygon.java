@@ -477,67 +477,94 @@ class Polygon extends GeometricType {
     }
 
     @Override
-    double[] calculateAirResistance(double AIR_DENSITY, double DRAG_COEFFICIENT, double[] v) {
-        double[] fD = new double[]{0.0, 0.0};
-        double torqueSum = 0.0;
-        double vX = v[0];
-        double vY = v[1];
-        int length = xPoints.size();
-        double magnitude1 = Math.sqrt(vX * vX + vY * vY);
-        if (Double.isNaN(magnitude1)) {
-            return new double[]{0.0, 0.0, 0.0};
-        }
-        double uX = vX / magnitude1;
-        double uY = vY / magnitude1;
-        if (Double.isNaN(uX)) uX = 0.0;
-        if (Double.isNaN(uY)) uY = 0.0;
-        double crossArea = 0.0;
-        for (int i = 0; i < length; i = i + 1) {
-            double nX = -(yPoints.get((i + 1) % length) - yPoints.get(i));
-            double nY = xPoints.get((i + 1) % length) - xPoints.get(i);
-            if (Double.isNaN(nX) || Double.isNaN(nY)) {
-                nX = 0.0;
-                nY = 0.0;
-            }
-            if (invertNormals) {
-                nX = -nX;
-                nY = -nY;
-            }
-            if (nX * uX + nY * uY >= 0.0) {
-                crossArea = crossArea + Math.abs((xPoints.get((i + 1) % length) - xPoints.get(i)) * -uY + (yPoints.get((i + 1) % length) - yPoints.get(i)) * uX);
-            }
-        }
-        double magnitude2 = 0.5 * AIR_DENSITY * crossArea * DRAG_COEFFICIENT * magnitude1 * magnitude1;
-        //the 10.0 here is arbitrary, and is a stand-in to prevent quick changes in velocity (impulses) from causing
-        //the simplified drag force from "over-correcting"
-        magnitude2 = Math.min(Rigidbody.get(getParentRigidbodyID()).getMass() * magnitude1 * 10.0, magnitude2);
-        fD = new double[]{-uX * magnitude2, -uY * magnitude2};
-        for (int i = 0; i < length; i = i + 1) {
-            double rPerpX = -yPoints.get(i);
-            double rPerpY = xPoints.get(i);
-            double nX = -(yPoints.get((i + 1) % length) - yPoints.get(i));
-            double nY = xPoints.get((i + 1) % length) - xPoints.get(i);
-            if (Double.isNaN(nX) || Double.isNaN(nY)) {
-                nX = 0.0;
-                nY = 0.0;
-            }
-            if (invertNormals) {
-                nX = -nX;
-                nY = -nY;
-            }
-            if (nX * uX + nY * uY >= 0.0) {
-                double torque = 0.5 * Math.abs((xPoints.get((i + 1) % length) - xPoints.get(i)) * -uY + (yPoints.get((i + 1) % length) - yPoints.get(i)) * uX) / crossArea;
-                double perpForce1 = (fD[0] * rPerpX + fD[1] * rPerpY);
-                double rPerpX2 = -yPoints.get((i + 1) % length);
-                double rPerpY2 = xPoints.get((i + 1) % length);
-                double perpForce2 = (fD[0] * rPerpX2 + fD[1] * rPerpY2);
-                torque = torque * (perpForce1 + perpForce2);
-                torqueSum = torqueSum + torque;
-            }
-        }
-        if (!Double.isFinite(fD[0]) || !Double.isFinite(fD[1]) || !Double.isFinite(torqueSum)) return new double[]{0.0, 0.0, 0.0};
+    double[] calculateAirResistance(double AIR_DENSITY, double DRAG_COEFFICIENT, double[] windSpeed, double dt) {
+        //this code needs to be revised to be more readable. As of right now, this exists in the form it does to enable a concise writing
+        //of formulas
+        Rigidbody parent = getParent();
+        int size = xPoints.size();
+        double[] result = new double[3];
+        ArrayList<double[]> testPoints = new ArrayList<>();
+        for (int i = 0; i < size; i++) {
+            double[] n = new double[]{-yPoints.get(mod(i+1,size)) + yPoints.get(i), xPoints.get(mod(i+1,size)) - xPoints.get(i)};
+            double length = Math.sqrt(n[0] * n[0] + n[1] * n[1]);
+            n[0] /= (invertNormals ? -length : length);
+            n[1] /= (invertNormals ? -length : length);
 
-        return(new double[]{fD[0], fD[1], torqueSum});
+            //find where velocity of the edge points along normal
+            double[] v1 = new double[]{parent.getVX() + parent.getAngularV() * -yPoints.get(i) - windSpeed[0], parent.getVY() + parent.getAngularV() * xPoints.get(i) - windSpeed[1]};
+            double[] v2 = new double[]{parent.getVX() + parent.getAngularV() * -yPoints.get(mod(i+1,size)) - windSpeed[0], parent.getVY() + parent.getAngularV() * xPoints.get(mod(i+1,size)) - windSpeed[1]};
+            double check1 = v1[0] * n[0] + v1[1] * n[1];
+            double check2 = v2[0] * n[0] + v2[1] * n[1];
+            double[] tBounds = new double[]{0.0, 1.0};
+            if (check1 < 0.0 ^ check2 < 0.0) {
+                double t = -check1 / (check2 - check1);
+                if (t <= 1.0 && t >= 0.0) {
+                    if (check1 > 0.0) tBounds[1] = t;
+                    else if (check2 > 0.0) tBounds[0] = t;
+                }
+            }
+            else if (check1 <= 0.0 && check2 <= 0.0) {
+                continue;
+            }
+
+            //now that the bounds of where the edge is considered to be moving into the air have been calculated, we can determine
+            //a set of variables used with short, non-descriptive names to keep the formulas smaller
+            double b = (v2[0] - v1[0]) * tBounds[0] + v1[0];
+            double a = (v2[0] - v1[0]) * tBounds[1] + v1[0] - b;
+            double d = (v2[1] - v1[1]) * tBounds[0] + v1[1];
+            double c = (v2[1] - v1[1]) * tBounds[1] + v1[1] - d;
+            double f = (xPoints.get(mod(i+1,size)) - xPoints.get(i)) * tBounds[0] + xPoints.get(i);
+            double e = (xPoints.get(mod(i+1,size)) - xPoints.get(i)) * tBounds[1] + xPoints.get(i) - f;
+            double h = (yPoints.get(mod(i+1,size)) - yPoints.get(i)) * tBounds[0] + yPoints.get(i);
+            double g = (yPoints.get(mod(i+1,size)) - yPoints.get(i)) * tBounds[1] + yPoints.get(i) - h;
+
+            //equations using these variables generated through online integral solvers from the (1/2)pCdv^2A formula applied to each small part of the shape
+            double temp = (6.0 * b + 3.0 * a) * d + (3.0 * b + 2.0 * a) * c;
+            double fX = -(temp * n[1] + (6.0 * b*b + 6.0 * a * b + 2.0 * a*a) * n[0]) / 6.0;
+            double fY = -((6.0 * d*d + 6.0 * c * d + 2.0 * c*c) * n[1] + temp * n[0]) / 6.0;
+            double torque = ((((12.0 * b + 6.0 * a) * d + (6.0 * b + 4.0 * a) * c) * h + ((6.0 * b + 4.0 * a) * d + (4.0 * b + 3.0 * a) * c) * g + (-12.0 * d*d - 12.0 * c * d - 4.0 * c*c) * f - 6.0 * e * d*d - 8.0 * e * c * d - 3.0 * e * c*c) * n[1] + ((12.0 * b*b + 12.0 * a * b + 4.0 * a*a) * h + (6.0 * b*b + 8.0 * a * b + 3.0 * a*a) * g + ((-12.0 * b - 6.0 * a) * d + (-6.0 * b - 4.0 * a) * c) * f + (-6.0 * e * b - 4.0 * e * a) * d + (-4.0 * e * b - 3.0 * e * a) * c) * n[0]) / 12.0;
+
+            //now that the force and torque has been calculated analytically on an interval, we check if it
+            //satisfies the requirement of not flipping the point velocities at high speeds (which can happen at large enough timesteps or velocities)
+            int N = 5;
+            double[] testPoint = new double[]{f,h};
+            for (int j = 0; j < N; j++) {
+                testPoint[0] += e / (N - 1);
+                testPoint[1] += g / (N - 1);
+                testPoints.add(testPoint);
+            }
+
+            result[0] += fX * length;
+            result[1] += fY * length;
+            result[2] += torque * length;
+        }
+        double multiplier = 0.5 * AIR_DENSITY * DRAG_COEFFICIENT;
+        result[0] *= multiplier;
+        result[1] *= multiplier;
+        result[2] *= multiplier;
+
+        //reuse multiplier variable as "clamping_multiplier"
+        multiplier = 1.0;
+        for (double[] testPoint : testPoints) {
+            //calculate the predicted change
+            double oldVx = parent.getVX() + parent.getAngularV() * -testPoint[1] - windSpeed[0];
+            double oldVy = parent.getVY() + parent.getAngularV() * testPoint[0] - windSpeed[1];
+            double magnitudeSquared = oldVx * oldVx + oldVy * oldVy;
+
+            double predictedChangeVx = (result[0] / parent.getMass() + (result[2] / parent.getInertia()) * -testPoint[1]) * dt;
+            double predictedChangeVy = (result[1] / parent.getMass() + (result[2] / parent.getInertia()) * testPoint[0]) * dt;
+            double dot = predictedChangeVx * oldVx + predictedChangeVy * oldVy;
+            double clamping_multiplier;
+            if (dot < -magnitudeSquared) {
+                clamping_multiplier = -magnitudeSquared / dot;
+                multiplier = Math.min(multiplier, clamping_multiplier);
+            }
+        }
+        result[0] *= multiplier;
+        result[1] *= multiplier;
+        result[2] *= multiplier;
+
+        return result;
     }
 
     @Override

@@ -187,21 +187,47 @@ class Circle extends GeometricType {
     }
 
     @Override
-    double[] calculateAirResistance(double AIR_DENSITY, double DRAG_COEFFICIENT, double[] v) {
-        double crossArea = 2.0 * radius;
-        double magnitude = Math.sqrt(v[0] * v[0] + v[1] * v[1]);
-        double forceMagnitude = 0.5 * AIR_DENSITY * crossArea * DRAG_COEFFICIENT * magnitude * magnitude;
-        double uX = v[0] / magnitude;
-        double uY = v[1] / magnitude;
-        //the 10.0 here is arbitrary, and is a stand-in to prevent quick changes in velocity (impulses) from causing
-        //the simplified drag force from "over-correcting"
-        forceMagnitude = Math.min(Rigidbody.get(getParentRigidbodyID()).getMass() * magnitude * 10.0, forceMagnitude);
-        double[] fD = new double[]{-uX * forceMagnitude, -uY * forceMagnitude};
-        if (Double.isNaN(fD[0])) fD[0] = 0.0;
-        if (Double.isNaN(fD[1])) fD[1] = 0.0;
+    double[] calculateAirResistance(double AIR_DENSITY, double DRAG_COEFFICIENT, double[] windSpeed, double dt) {
+        Rigidbody parent = getParent();
+        double[] result = new double[3];
+        double vMag = Math.sqrt((parent.getVX() - windSpeed[0]) * (parent.getVX() - windSpeed[0]) + (parent.getVY() - windSpeed[1]) * (parent.getVY() - windSpeed[1]));
+        result[0] = -0.5 * (4.0 * (parent.getVX() - windSpeed[0]) * vMag - Math.PI * radius * parent.getAngularV() * (parent.getVY() - windSpeed[1]));
+        result[1] = -0.5 * (4.0 * (parent.getVY() - windSpeed[1]) * vMag + Math.PI * radius * parent.getAngularV() * (parent.getVX() - windSpeed[0]));
+        result[2] = -2.0 * radius * parent.getAngularV() * vMag;
 
-        return(new double[]{fD[0], fD[1], 0.0});
+        double multiplier = 0.5 * AIR_DENSITY * DRAG_COEFFICIENT * radius;
+        result[0] *= multiplier;
+        result[1] *= multiplier;
+        result[2] *= multiplier;
+
+        int N = 5;
+        double initialTheta = Math.atan2((parent.getVY() - windSpeed[1]), (parent.getVX() - windSpeed[0])) - 0.5 * Math.PI;
+        double interval = (0.5 * Math.PI) / (N - 1);
+        //reuse multiplier as "clamping multiplier"
+        multiplier = 1.0;
+        for (int i = 0; i < N; i++) {
+            double[] testPoint = new double[]{radius * Math.cos(initialTheta + i * interval), radius * Math.sin(initialTheta + i * interval)};
+            //calculate the predicted change
+            double oldVx = parent.getVX() + parent.getAngularV() * -testPoint[1] - windSpeed[0];
+            double oldVy = parent.getVY() + parent.getAngularV() * testPoint[0] - windSpeed[1];
+            double magnitudeSquared = oldVx * oldVx + oldVy * oldVy;
+
+            double predictedChangeVx = (result[0] / parent.getMass() + (result[2] / parent.getInertia()) * -testPoint[1]) * dt;
+            double predictedChangeVy = (result[1] / parent.getMass() + (result[2] / parent.getInertia()) * testPoint[0]) * dt;
+            double dot = predictedChangeVx * oldVx + predictedChangeVy * oldVy;
+            double clamping_multiplier;
+            if (dot < -magnitudeSquared) {
+                clamping_multiplier = -magnitudeSquared / dot;
+                multiplier = Math.min(multiplier, clamping_multiplier);
+            }
+        }
+        result[0] *= multiplier;
+        result[1] *= multiplier;
+        result[2] *= multiplier;
+
+        return result;
     }
+
 
     @Override
     Triplet getDrawInt(double shiftX, double resolutionCenterX, double pixelShiftX, double shiftY, double resolutionCenterY, double pixelShiftY, double resolutionScaling) {

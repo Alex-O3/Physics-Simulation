@@ -11,9 +11,7 @@ public class Main {
     public static void main(String[] args) throws Exception {
         Simulation sim = new Simulation(0, 0 ,500, 500,1.0, true, true);
         Simulation.showCreationInfo = true;
-        sim.setDebugBounds(false,false);
-
-        sim.setupDemo(11);
+        sim.setupDemo(1);
 
         long time = 0;
         System.out.println("Size: " + sim.size() + " objects/hitboxes");

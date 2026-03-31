@@ -124,9 +124,10 @@ class Rigidbody {
         newposX += newvX * dt;
         newposY += newvY * dt;
         rotateAroundCenter(dt);
+        //we do not use newa here because a is state-based, not cumulative over frames
         newvX += aX * dt;
         newvY += aY * dt;
-        newangularV += angularA * dt;
+        newangularV += newangularA * dt;
     }
     static void step(double dt, int simID) {
         for (Rigidbody rigidbody : rigidbodies) {
@@ -271,7 +272,7 @@ class Rigidbody {
                 }
             }
             for (Controller controller : controllers) {
-                controller.respondToKey(dt, Simulation.get(simID).display.keysCache, Simulation.get(simID).display.firstPress,
+                controller.respondToKeyImpulse(dt, sim.display.keysCache, sim.display.firstPress,
                         Simulation.get(simID).display.keyReleasedFirstTime, onGround, !collidingIDs.isEmpty(), maxGroundVelocity);
             }
         }
@@ -289,8 +290,7 @@ class Rigidbody {
         return false;
     }
     public boolean checkCollisions(Joint solidJoint) {
-        if (!collidingIDs.contains(solidJoint.parent.ID) && !collidingIDs.contains(solidJoint.connection.ID)) return(geometry.findCollisions(solidJoint));
-        else return false;
+        return(geometry.findCollisions(solidJoint));
     }
     private boolean checkForCollisionsWall() {
         return(geometry.checkForCollisionsWall());
@@ -379,6 +379,7 @@ class Rigidbody {
                     i = i - 1;
                 }
                 if (!rigidbody.isHitbox && Double.isNaN(rigidbody.contactPoints.get(i)[0]) && Double.isNaN(rigidbody.contactPoints.get(i)[1])) {
+                    //this first one here is a condition only joints fulfill (unless not ideal)
                     if (i < rigidbody.contactPoints.size() - 1 && Double.isNaN(rigidbody.contactPoints.get(i + 1)[0])
                             && rigidbody.contactPoints.get(i + 1)[1] == 0.0){
                         rigidbody.contactPoints.remove(i);
@@ -441,13 +442,24 @@ class Rigidbody {
             newaY += results[1];
         }
         if (sim.airResistance) {
-            double[] results = geometry.calculateAirResistance(sim.AIR_DENSITY, sim.DRAG_COEFFICIENT, new double[]{vX, vY});
+            double[] results = geometry.calculateAirResistance(sim.AIR_DENSITY, sim.DRAG_COEFFICIENT, sim.WIND_SPEED, dt);
             newaX += results[0] / mass;
             newaY += results[1] / mass;
             newangularA += results[2] / inertia;
         }
 
         calculateRepulsion();
+        if (!controllers.isEmpty()) for (Controller controller : controllers) {
+            double[] results = controller.respondToKeyJerk(sim.display.keysCache);
+            if (compoundBody != null) {
+                compoundBody.addControllerJerk(results);
+            }
+            else {
+                newaX += results[0];
+                newaY += results[1];
+            }
+        }
+
         //first handle joints, starting with mouse joint (though not technically a joint)
         if (mouseHold) {
             double vmX = (currentMouseX - lastMouseX) / dt;
@@ -595,7 +607,7 @@ class Rigidbody {
         double vtrel = (vX + angularV * rPerp1x) * -nY + (vY + angularV * rPerp1y) * nX - ((temp2 - temp1) * t + temp1);
 
         int countOfValidCollisionImpulses = 0;
-        if (parentSoftbody != -1 || vimprel > 0.0) {
+        if (vimprel > 0.0) {
             return countOfValidCollisionImpulses;
         }
         else countOfValidCollisionImpulses++;
@@ -656,14 +668,14 @@ class Rigidbody {
         }
 
         double magnitude = Math.sqrt(MTVs.get(h)[0] * MTVs.get(h)[0] + MTVs.get(h)[1] * MTVs.get(h)[1]);
-        /*if (joint1.isMovable() && joint2.isMovable()) {
+        if (joint1.isMovable() && joint2.isMovable()) {
             double multiplier = -((magnitude - sim.MTV_EPSILON) / magnitude) * (mass / (joint1.getMass() + joint2.getMass()));
             multiplier *= 1.0 + (sim.MTV_EPSILON / Math.abs(multiplier));
             joint1.newposX += MTVs.get(h)[0] * multiplier;
             joint2.newposX += MTVs.get(h)[0] * multiplier;
             joint1.newposY += MTVs.get(h)[1] * multiplier;
             joint2.newposY += MTVs.get(h)[1] * multiplier;
-        }*/
+        }
 
         return countOfValidCollisionImpulses;
     }
@@ -684,15 +696,13 @@ class Rigidbody {
         return(new double[]{sumaX, sumaY});
     }
     private void calculateRepulsion() {
-        double detectRadiusMultiplier = Math.sqrt(sim.REPULSE_RADIUS_MULTIPLIER);
         double REPULSION_STRENGTH = sim.REPULSION_STRENGTH;
         if (parentSoftbody != -1 && REPULSION_STRENGTH > 0.0) for (int i = 0; i < Softbody.num; i = i + 1) {
             if (Softbody.get(i) != null && Softbody.get(i).simID == simID && i != parentSoftbody) {
                 double distanceToBodyX = posX - Softbody.get(i).cM[0];
                 double distanceToBodyY = posY - Softbody.get(i).cM[1];
                 double distanceToBody = Math.sqrt(distanceToBodyX * distanceToBodyX + distanceToBodyY * distanceToBodyY);
-                if (distanceToBody <= detectRadiusMultiplier * (geometry.getLargestDistance() +
-                        Softbody.get(i).getRadius())) {
+                if (distanceToBody <= Softbody.get(i).getRadius() + Softbody.get(i).getPointRadius() * sim.REPULSE_RADIUS_MULTIPLIER) {
                     for (int j = 0; j < Softbody.get(i).size(); j++) {
                         double dx = posX - Softbody.get(i).getMember(j).getPosX();
                         double dy = posY - Softbody.get(i).getMember(j).getPosY();
