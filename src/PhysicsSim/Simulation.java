@@ -54,8 +54,9 @@ public class Simulation {
     public double COEFFICIENT_OF_RESTITUTION = 0.75;
     public double COEFFICIENT_OF_FRICTION = 0.0;
     public double GRAVITATIONAL_CONSTANT = 10.0;
-    public double AIR_DENSITY = 0.01204;
+    public double AIR_DENSITY = 0.001204;
     public double DRAG_COEFFICIENT = 0.95;
+    public final double[] WIND_SPEED = new double[]{0.0, 0.0};
     public double CLAMP_LIMIT = 0.0;
     public double CONTACT_POINTS_MERGE_DISTANCE = 0.1;
     public double MOUSE_SPEED_LIMIT = 1000.0;
@@ -231,7 +232,7 @@ public class Simulation {
     public void setupDemo(int demoID) {
         if (validDemo()) {
             COEFFICIENT_OF_RESTITUTION = 0.5;
-            COEFFICIENT_OF_FRICTION = 0.0;
+            COEFFICIENT_OF_FRICTION = 0.1;
             airResistance = false;
             worldBottomBound = 460.0;
             worldTopBound = 0.0;
@@ -239,24 +240,26 @@ public class Simulation {
             worldRightBound = 485.0;
             switch(demoID) {
                 case(3): {
-                    AIR_DENSITY = 0.2;
+                    AIR_DENSITY = 0.1;
                     airResistance = true;
                 }
                 case(1): {
-                    if (demoID != 3) AIR_DENSITY = 0.0;
+                    if (demoID != 3) {
+                        AIR_DENSITY = 0.0;
+                        COEFFICIENT_OF_FRICTION = 0.0;
+                    }
                     addRigidbodyPolygon(new double[]{-14.1, 7.3, 18.8, -10.9, 0.0, -26.6}, new double[]{-16.2, -20.7, 7.0, 23.7, -7.8, -0.8}, new double[]{200.0, 200.0, 0.0, 0.0, 0.0, 90.0, 3.0, 0.0}, 50.0, Color.blue);
                     addRigidbodyPolygon(new double[]{-21.3, 48.5, 53.0, 5.0, -32.0}, new double[]{32.4, 20.7, -21.0, -21.0, -1.6}, new double[]{400.0, 100.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 40.0, Color.yellow);
 
                     addObstaclePolygon(new double[]{0.0, 300.0, 300.0, 0.0}, new double[]{250.0, 480.0, 500.0, 500.0}, 1.0, Color.green);
                     addRigidbodyCircle(new double[]{100.0, 125.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 15.0, 10.0, Color.black);
                     if (demoID == 1) System.out.println("Demo 1: shows basic rigidbodies physically interacting. Includes an immovable object. No air resistance or friction in action.");
-                    if (demoID == 3) System.out.println("Demo 3: Same as demo 1, but with basic air resistance turned on. This simplified model, for the most part, treats every rigidbody as a point mass at its center of mass.");
+                    if (demoID == 3) System.out.println("Demo 3: Same as demo 1, but with friction and basic air resistance turned on. This simplified model assumes all \"air\" is moving at a uniform speed with a uniform density, itself unaffected by body. CFD is not considered.");
                     break;
                 }
                 case(2): {
                     COEFFICIENT_OF_FRICTION = 0.0;
                     COEFFICIENT_OF_RESTITUTION = 0.25;
-                    airResistance = false;
                     addRigidbodyPolygon(new double[]{-50.0, 25.0, 25.0, -50.0}, new double[]{-25.0, -25.0, 25.0, 25.0}, new double[]{50.0, 440.0, 50.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 100.0, Color.black);
                     //addObstaclePolygon(new double[]{0.0, 75.0, 75.0, 0.0}, new double[]{415.0, 415.0, 465.0, 465.0}, new double[]{50.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 100.0, Color.black);
                     addRigidbodyPolygon(new double[]{-12.5, 12.5, 12.5, -12.5}, new double[]{-12.5, -12.5, 12.5, 12.5}, new double[]{100.0, 360.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 1.0, Color.blue);
@@ -305,8 +308,6 @@ public class Simulation {
                     break;
                 }
                 case(7): {
-                    COEFFICIENT_OF_RESTITUTION = 0.75;
-                    COEFFICIENT_OF_FRICTION = 0.1;
                     addSpringSoftbody(new double[]{200.0, 475.0, 400.0, 100.0}, new double[]{400.0, 400.0, 325.0, 335.0}, new double[]{0.0, 0.0, 0.0, 90.0},
                             500.0, Color.blue, 5000.0, 15.0, 5.0 / Math.sqrt(2));
                     addObstaclePolygon(new double[]{0.0, 500.0, 500.0, 0.0}, new double[]{250.0, 250.0, 300.0, 300.0}, 0.0, Color.green);
@@ -318,8 +319,6 @@ public class Simulation {
                     break;
                 }
                 case(8): {
-                    COEFFICIENT_OF_RESTITUTION = 0.5;
-                    COEFFICIENT_OF_FRICTION = 0.1;
                     addShapedSoftbody(false, new double[]{100.0, 200.0, 200.0, 100.0}, new double[]{100.0, 100.0, 300.0, 300.0}, new double[]{0.0, 0.0, 0.0, 90.0}, 500.0, Color.blue, 100.0, 15.0, 3.0, 200.0);
                     addRigidbodyPolygon(new double[]{-50.0, 50.0, 50.0, -50.0}, new double[]{-50.0, -50.0, 50.0, 50.0}, new double[]{300.0, 250.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 200.0, Color.blue);
                     addShapedSoftbody(true, new double[]{350.0, 450.0, 450.0, 350.0}, new double[]{100.0, 100.0, 150.0, 150.0}, new double[]{-150.0, 0.0, 0.0, 90.0}, 500.0, Color.magenta, 100.0, 20.0, 3.0, 200.0);
@@ -329,14 +328,12 @@ public class Simulation {
                 case(9): {
                     bounds = false;
                     airResistance = true;
-                    createMaterial("Ground1", 10.0, 0.1, 0.6);
-                    createMaterial("Ground2", 100.0, 0.5, 0.5);
+                    createMaterial("Ground1", 10.0, 0.1, 0.5);
+                    createMaterial("Ground2", 100.0, 0.5, 0.3);
                     createMaterial("pillPart", 100.0, 1.0, 0.1);
-                    //addRigidbodyCircle(new double[]{250.0, 220.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 25.0, 100.0, Color.blue);
                     addRigidbodyPolygon(new double[]{-15, 15, 15, -15}, new double[]{-32, -32, 32, 32}, new double[]{250.0, 220.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 100, Color.blue);
                     addRigidbodyCircle(new double[]{250.0, 188.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 16.0, 100, Color.blue);
                     addRigidbodyCircle(new double[]{250.0, 252.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 16.0, 100, Color.blue);
-                    //getObject(2).addStandardControllerBundle();
                     getObject(0).setMaterial("pillPart");
                     getObject(1).setMaterial("pillPart");
                     getObject(2).addStandardControllerBundle();
@@ -345,7 +342,7 @@ public class Simulation {
 
                     //assign materials
                     addObstaclePolygon(new double[]{-500.0, 1000.0, 1000.0, -500.0}, new double[]{400.0, 400.0, 500.0, 500.0}, 10.0, Color.green);
-                    getObject(3).setMaterial("Ground1");
+                    getObject(3).setMaterial("Ground2");
                     showVelocityVector(1.0);
                     addObstaclePolygon(new double[]{375.0, 125.0, 125.0, 375.0}, new double[]{280.0, 280.0, 290.0, 290.0}, new double[]{0.0, 0.0, 0.0, 0.0, 0.1, 0.0}, 10.0, Color.green);
                     getObject(4).setMaterial("Ground2");
@@ -369,10 +366,10 @@ public class Simulation {
                     COEFFICIENT_OF_RESTITUTION = 1.0;
                     COEFFICIENT_OF_FRICTION = 0.0;
                     for (int i = 0; i < 2000; i = i + 1) {
-                        addRigidbodyCircle(new double[]{Math.random() * 500.0, Math.random() * 500.0, Math.random() * 50.0 * Math.signum(Math.random() - 0.5), Math.random() * 50.0 * Math.signum(Math.random() - 0.5), 0.0, 90.0, 0.0, 0.0}, 2.5, 10.0, Color.blue);
-                        //physicsObjects.get(physicsObjects.size() - 1).lockRotation(true);
+                        double[] motion = new double[]{Math.random() * 500.0, Math.random() * 500.0, Math.random() * 50.0 * Math.signum(Math.random() - 0.5), Math.random() * 50.0 * Math.signum(Math.random() - 0.5), 0.0, 90.0, 0.0, 0.0};
+                        addRigidbodyCircle(motion, 2.5, 10.0, Color.blue);
                     }
-                    //addShapedSoftbody(false, new double[]{200.0, 300.0, 300.0, 200.0}, new double[]{200.0, 200.0, 300.0, 300.0}, new double[]{0.0, 0.0, 0.0, 90.0}, 1000.0, Color.black, 100.0, 10.0, 3.0, 300.0);
+                    addShapedSoftbody(false, new double[]{200.0, 300.0, 300.0, 200.0}, new double[]{-300.0, -300.0, -200.0, -200.0}, new double[]{0.0, 0.0, 0.0, 90.0}, 1000.0, Color.black, 100.0, 10.0, 3.0, 300.0);
                     addRigidbodyCircle(new double[]{250.0, 50.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 25.0, 1000.0, Color.yellow);
                     System.out.println("Demo 10: shows optimization using Sweep and Prune algorithm.");
                     break;
@@ -719,7 +716,7 @@ public class Simulation {
      * @param stiffness the Hooke's constant applied to each spring connection is this value * the mass per body while the damping coefficient is the
      *                  corresponding simulation's DAMPING_COEFFICIENT_RELATOR * sqrt(massPer * Hooke's constant).
      * @param targetDensity the target density lattice construction aims to achieve in members per 2500 unit^2. The distance calculated for this lattice is used to determine the separation between boundary
-     *                      members in the of the softbody being hollow.
+     *                      members in the case of the softbody being hollow.
      * @param pointRadius the radius of all member bodies.
      * @param shape_match_strength multiplied by the mass of a member body, this equals Hooke's Constant in the spring relation between the current position
      *                             and the desired position. The corresponding damping coefficient is equal to its Simulation's DAMPING_COEFFICIENT_RELATOR * sqrt(match_strength * massPer).

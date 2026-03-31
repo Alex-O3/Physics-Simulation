@@ -232,10 +232,11 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
                         (int) (2.0 * softbody.getRadius() / resolutionScaling),
                         (int) (2.0 * softbody.getRadius() / resolutionScaling));
                 g.setColor(Color.cyan);
-                g.drawOval(convertX(softbody.cM[0] - repulse_radius_multiplier * softbody.getRadius()),
-                        convertY(softbody.cM[1] - repulse_radius_multiplier * softbody.getRadius()),
-                        (int) (2.0 * repulse_radius_multiplier * softbody.getRadius() / resolutionScaling),
-                        (int) (2.0 * repulse_radius_multiplier * softbody.getRadius() / resolutionScaling));
+                double repulse_radius = softbody.getRadius() + softbody.getPointRadius() * repulse_radius_multiplier;
+                g.drawOval(convertX(softbody.cM[0] - repulse_radius),
+                        convertY(softbody.cM[1] - repulse_radius),
+                        (int) (2.0 * repulse_radius / resolutionScaling),
+                        (int) (2.0 * repulse_radius / resolutionScaling));
             }
 
             //drawing bounding boxes

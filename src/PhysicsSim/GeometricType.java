@@ -79,9 +79,10 @@ abstract class GeometricType {
      * Calculate the effect of air resistance due to various factors on torque and force about/on the center of mass of this geometry. Mass is assumed uniform, for consistency. Present implementations adopt simplistic models that, on a rudimentary level, approximate air resistance due to an application of the drag force equation.
      * @param AIR_DENSITY
      * @param DRAG_COEFFICIENT
-     * @param v velocity of the center of mass of the geometry. Present applications do not take into account angular velocity.
+     * @param windSpeed velocity of the air. Assumed uniform.
+     * @param dt the timestep per simulation step this runs in
      */
-    abstract double[] calculateAirResistance(double AIR_DENSITY, double DRAG_COEFFICIENT, double[] v);
+    abstract double[] calculateAirResistance(double AIR_DENSITY, double DRAG_COEFFICIENT, double[] windSpeed, double dt);
 
     /**
      *

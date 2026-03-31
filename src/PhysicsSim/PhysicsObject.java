@@ -444,7 +444,7 @@ public class PhysicsObject {
             result.append(", Mass: ").append(rigidbody.getMass()).append(", Difference against air density: ").append((rigidbody.getMass() / rigidbody.getArea()) - Simulation.get(whatAmI.getThirdInt()).AIR_DENSITY);
             if (getGeometryType().equals("Polygon")) {
                 result.append("\n");
-                result.append(((Polygon) rigidbody.geometry).getTriangulationCategorization());
+                result.append(((Polygon) rigidbody.geometry).getTriangulationCategorization()).append("\n");
                 result.append(((Polygon) rigidbody.geometry).getConvexCategorization());
             }
         }
@@ -686,6 +686,8 @@ public class PhysicsObject {
                      Simulation.get(whatAmI.getThirdInt()).display.addKeyListener(Simulation.get(whatAmI.getThirdInt()).display);
                  }
                  new Controller(key, initialVelocity, releaseVelocity, sustainedForce, maxSpeed, direction, rigidbody, excludeIfKey);
+                 //ensure these global controller parameters (global per object) are unified
+                 setControllerParameters(rigidbody.controllers.getFirst().stepsUntilNotTouchingGround, rigidbody.controllers.getFirst().velocityDecrementWhenInAir);
                  break;
              }
              default: {
@@ -697,22 +699,32 @@ public class PhysicsObject {
 
     /**
      * Adds the developer's tested "standard" bundle of controllers set to WASD.
+     * For transparency, this is the method: <br>
+     * <code>addController('d', 20.0, 15.0, 100.0, 100.0, new double[]{1.0, 0.0}, 'a');<br>
+     *         addController('a', 20.0,15.0, 100.0, 100.0, new double[]{-1.0, 0.0}, 'd');<br>
+     *         addController('w', 100.0, 0.0, 0.0, 0.0, new double[]{0.0, -1.0}, '\u0000');<br>
+     *         addController('s', 0.0, 0.0, 180.0, 300.0, new double[]{0.0, 1.0}, '\u0000');<br>
+     *         makeAdoptOtherSurfaceOnly(true);<br>
+     *         lockRotation(true);<br>
+     *         Simulation.createMaterial("Player", 100.0, 0.1, 0.0);<br>
+     *         setMaterial("Player");<br>
+     * </code>
      */
     public void addStandardControllerBundle() {
-        addController('d', 20.0, 15.0 ,300.0, 100.0, new double[]{1.0, 0.0}, 'a');
-        addController('a', 20.0,15.0,  300.0, 100.0, new double[]{-1.0, 0.0}, 'd');
+        addController('d', 20.0, 15.0 ,100.0, 100.0, new double[]{1.0, 0.0}, 'a');
+        addController('a', 20.0,15.0,  100.0, 100.0, new double[]{-1.0, 0.0}, 'd');
         addController('w', 100.0, 0.0, 0.0, 0.0, new double[]{0.0, -1.0}, '\u0000');
-        addController('s', 0.0, 0.0, 180.0, 0.0, new double[]{0.0, 1.0}, '\u0000');
+        addController('s', 0.0, 0.0, 180.0, 300.0, new double[]{0.0, 1.0}, '\u0000');
         makeAdoptOtherSurfaceOnly(true);
         lockRotation(true);
-        Simulation.createMaterial("Player", 100.0, 0.1, 0.5);
+        Simulation.createMaterial("Player", 100.0, 0.1, 0.0);
         setMaterial("Player");
      }
 
     /**
      * Sets some parameters of the controllers applied to this object.
      * @param stepsUntilOffGround the number of simulation steps until the controller considers the object off the ground.
-     * @param velocityReframingRate the rate at which the controller adjusts the ground velocity to the zero vector when no longer touching the ground.
+     * @param velocityReframingRate the rate at which the controller adjusts the ground velocity to the wind speed vector when no longer touching the ground.
      */
     public void setControllerParameters(int stepsUntilOffGround, double velocityReframingRate) {
         if (whatAmI.getFirstString().equals("Rigidbody")) {

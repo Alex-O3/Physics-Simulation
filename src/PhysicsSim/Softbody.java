@@ -16,7 +16,6 @@ class Softbody {
     public static int num = 0;
     public final int ID;
 
-    private double largestDistanceSquared;
     private double largestDistance;
     public double minX;
     public double maxX;
@@ -320,7 +319,7 @@ class Softbody {
         maxX = Double.NaN;
         minY = Double.NaN;
         maxY = Double.NaN;
-        largestDistanceSquared = Double.NaN;
+        double largestDistanceSquared = Double.NaN;
         for (Rigidbody point : members) {
             double dx = point.getPosX() - cM[0];
             double dy = point.getPosY() - cM[1];

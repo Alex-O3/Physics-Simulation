@@ -325,6 +325,8 @@ class ConvexPolygon { //this class is closely tied to the Polygon class
         boolean incidentOnOther = false;
 
         //find ideal normal and boolean intersecting
+
+        //check edge points first
         for (int pointIndex = 0; pointIndex < indices.length; pointIndex++) {
             double distance = (myX[pointIndex] - otherX) * (myX[pointIndex] - otherX) + (myY[pointIndex] - otherY) * (myY[pointIndex] - otherY);
             distance = Math.sqrt(distance);
@@ -339,6 +341,7 @@ class ConvexPolygon { //this class is closely tied to the Polygon class
             }
         }
 
+        //then the edges themselves
         if (!intersecting) {
             intersecting = true;
             boolean foundValid = false;
@@ -375,6 +378,27 @@ class ConvexPolygon { //this class is closely tied to the Polygon class
                 }
             }
             if (!foundValid && !parentPolygon.getParent().isHitbox) intersecting = false;
+        }
+
+        //then another edges check for the special case where it contains the circle
+        if (!intersecting && !parentPolygon.getParent().isHitbox) {
+            intersecting = true;
+            for (int edgeIndex = 0; edgeIndex < indices.length; edgeIndex++) {
+                double signedDistance = (otherX - myX[edgeIndex]) * normalX[edgeIndex] + (otherY - myY[edgeIndex]) * normalY[edgeIndex];
+                signedDistance = -signedDistance;
+
+                if (signedDistance < 0.0) {
+                    intersecting = false;
+                    break;
+                }
+                else if (!Double.isFinite(overlap) || signedDistance < overlap) {
+                    overlap = signedDistance;
+                    incidentOnOther = true;
+                    referenceEdgeIndex = edgeIndex;
+                    selectedNormal[0] = normalX[edgeIndex];
+                    selectedNormal[1] = normalY[edgeIndex];
+                }
+            }
         }
 
         double[] pointOfContact = new double[]{Double.NaN, Double.NaN};
