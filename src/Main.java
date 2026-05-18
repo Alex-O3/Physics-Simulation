@@ -21,6 +21,7 @@ public class Main {
         int demoID = Integer.parseInt(String.valueOf(prompt.input.substring(4)));
         sim.setupDemo(demoID);
 
+
         long time = 0;
         System.out.println("Size: " + sim.size() + " objects/hitboxes");
         while (gameRunning && start) {
