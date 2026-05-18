@@ -44,7 +44,7 @@ class AABBox {
             double x2 = solidJoint.connection.getPosX() + solidJoint.offsetFromCMOther[0];
             double y1 = solidJoint.parent.getPosY() + solidJoint.offsetFromCMParent[1];
             double y2 = solidJoint.connection.getPosY() + solidJoint.offsetFromCMOther[1];
-            double lineThickness = Simulation.get(solidJoint.parent.simID).solidJointCollisionLineThickness;
+            double lineThickness = solidJoint.parent.sim.solidJointCollisionLineThickness;
             minX.value = Math.min(x1, x2) - lineThickness;
             maxX.value = Math.max(x1, x2) + lineThickness;
             minY.value = Math.min(y1, y2) - lineThickness;
