@@ -13,6 +13,7 @@ public class Main {
         Simulation.showCreationInfo = true;
         sim.setupDemo(1);
 
+
         long time = 0;
         System.out.println("Size: " + sim.size() + " objects/hitboxes");
         while (gameRunning) {

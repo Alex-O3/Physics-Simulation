@@ -77,7 +77,7 @@ class Polygon extends GeometricType {
                         if (!validPoint) validPoint = isOnNormalSide(point, mod(forwardIndex,length), mod(backwardIndex,length));
                         if (!validPoint) {
                             valid = false;
-                            pointExclusions[i] = 2; //2 means the point in question is convex, but invalid because it contains another polygon point in the proposed triangle
+                            pointExclusions[mod(i, length)] = 2; //2 means the point in question is convex, but invalid because it contains another polygon point in the proposed triangle
                             break;
                         }
                     }

@@ -58,13 +58,13 @@ class ConvexPolygon { //this class is closely tied to the Polygon class
         }
         for (int j = 1; j < sharingPolygon.indices.length + indicesIndexSharing; j++) {
             newindices[mod(indicesIndexParent + j, newindices.length)] = sharingPolygon.indices[mod(indicesIndexSharing + j, sharingPolygon.indices.length)];
-            if (newindices[mod(indicesIndexParent +j, newindices.length)] == edgePointB) {
+            if (newindices[mod(indicesIndexParent + j, newindices.length)] == edgePointB) {
                 indicesIndexSharing = j + indicesIndexParent;
                 break;
             }
         }
         for (int i = 1; i < newindices.length - indicesIndexSharing; i++) {
-            newindices[mod(indicesIndexSharing + i, newindices.length)] = indices[mod(indicesIndexParent + i, indices.length)];
+            newindices[mod(indicesIndexSharing + i, newindices.length)] = indices[mod(indicesIndexParent + i + 1, indices.length)];
             if (indicesIndexSharing + i >= newindices.length) break;
         }
         indices = newindices;
