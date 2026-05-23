@@ -39,6 +39,7 @@ public class Simulation {
     public final int ID;
     private static int num = 0;
     public static boolean showCreationInfo = false;
+    private final ArrayList<Script> scripts = new ArrayList<>();
     private static final ArrayList<Simulation> simulations = new ArrayList<>();
     final ArrayList<SAPCell> sapCells = new ArrayList<>();
     public final ArrayList<BVHTreeRoot> BVHtrees = new ArrayList<>();
@@ -85,6 +86,7 @@ public class Simulation {
     private double[] frameTimes = new double[fpsCountingBuffer];
     private int frameCountLoop = 0;
     public boolean isSAPvsBVH = true;
+    public boolean hollowSoftbodiesSelfCollide = false;
 
     final Display display;
     public final double keysCacheRemovalBufferTime = 0.0;
@@ -118,6 +120,14 @@ public class Simulation {
         simulations.add(this);
         new SAPCell(ID, 0, 0);
         new BVHTreeRoot(ID, 8);
+    }
+
+    /**
+     *
+     * @return ArrayList&lt;Script&gt; of all the scripts running before and after each simulation step.
+     */
+    public ArrayList<Script> getScripts() {
+        return scripts;
     }
 
     private int counterUntilTreeConstruction = 0;
@@ -158,6 +168,8 @@ public class Simulation {
         long beforeTime = System.currentTimeMillis();
         dt = dt / (double) stepsPerFrame;
         for (int frameCount = 0; frameCount < stepsPerFrame; frameCount = frameCount + 1) {
+            for (Script script : scripts) script.runBefore();
+
             if (mouse) display.mouseDrag(dt, stepsPerFrame);
             Rigidbody.clearCollisionInformation(ID);
             if (isSAPvsBVH) for (SAPCell sap : sapCells) {
@@ -178,6 +190,8 @@ public class Simulation {
             Rigidbody.step(dt, ID);
             Softbody.step(ID);
             Rigidbody.updateMotion(dt, ID);
+
+            for (Script script : scripts) script.runAfter();
         }
 
         if (!display.keyReleased) {
@@ -351,6 +365,32 @@ public class Simulation {
 
                     //add hitboxes
                     addHitboxPolygon(new double[]{-2000.0, 2000.0, 2000.0, -2000.0}, new double[]{800.0, 800.0, 1000.0, 1000.0}, Color.red, "Death_Zone");
+                    getHitbox("Death_Zone").addEventListener(new EventListener() {
+                        @Override
+                        public void collidedPre(CollisionEvent e) {
+
+                        }
+
+                        @Override
+                        public void collidedPost(CollisionEvent e) {
+
+                        }
+
+                        @Override
+                        public void intersected(HitboxIntersectionEvent e) {
+
+                        }
+
+                        @Override
+                        public void intersected(PhysicsObjectIntersectionEvent e) {
+                            try {
+                                if (e.physicsObject().getMaterialName().equals("Player"))
+                                    e.physicsObject().setPosition(new double[]{250.0, 0.0});
+                            } catch (Exception _) {
+
+                            }
+                        }
+                    });
 
                     if (Simulation.showCreationInfo) {
                         listAllMaterials();
@@ -369,7 +409,6 @@ public class Simulation {
                         double[] motion = new double[]{Math.random() * 500.0, Math.random() * 500.0, Math.random() * 50.0 * Math.signum(Math.random() - 0.5), Math.random() * 50.0 * Math.signum(Math.random() - 0.5), 0.0, 90.0, 0.0, 0.0};
                         addRigidbodyCircle(motion, 2.5, 10.0, Color.blue);
                     }
-                    addShapedSoftbody(false, new double[]{200.0, 300.0, 300.0, 200.0}, new double[]{-300.0, -300.0, -200.0, -200.0}, new double[]{0.0, 0.0, 0.0, 90.0}, 1000.0, Color.black, 100.0, 10.0, 3.0, 300.0);
                     addRigidbodyCircle(new double[]{250.0, 50.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 25.0, 1000.0, Color.yellow);
                     System.out.println("Demo 10: shows optimization using Sweep and Prune algorithm.");
                     break;

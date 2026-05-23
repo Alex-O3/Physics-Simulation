@@ -28,6 +28,7 @@ class Rigidbody {
     private static final ArrayList<Rigidbody> rigidbodies = new ArrayList<>();
     private static final ArrayList<CompoundBody> compoundBodies = new ArrayList<>();
     private static final ArrayList<ConnectedBody> connectedBodies = new ArrayList<>();
+    final ArrayList<EventListener> events = new ArrayList<>();
     static int num = 0;
     final int ID;
     private boolean isMovable = true;
@@ -35,7 +36,6 @@ class Rigidbody {
     boolean isAttached = false;
     boolean draw = true;
 
-    //these ArrayLists are not constant, but the pointer stored to them is, hence the "final"
     final ArrayList<Controller> controllers = new ArrayList<>();
     final ArrayList<Double[]> contactPoints = new ArrayList<>();
     final ArrayList<Double[]> MTVs = new ArrayList<>();
@@ -43,7 +43,7 @@ class Rigidbody {
     //for collidingIDs, 0 - infinity inclusive is reserved for other rigidbodies and
     // -2 - -infinity numbers is reserved for solid joints. These are then converted by n -> -n -2 to get the
     //ID of the rigidbodies involved in that collision.
-    //AABBs refer to softbodies as their localID mapped n -> -n - 2, and not joints. Joints are referred to by a non-null solidJoint object.
+    //AABBs refer to softbodies as their localID mapped n -> -n - 2, and not joints, though this is unused. Joints are referred to by a non-null solidJoint object.
 
     double mass;
     double inertia;
@@ -131,6 +131,10 @@ class Rigidbody {
     }
     static void step(double dt, int simID) {
         for (Rigidbody rigidbody : rigidbodies) {
+            if (rigidbody != null && rigidbody.simID == simID && !rigidbody.events.isEmpty()) rigidbody.respondToEvent(true);
+        }
+
+        for (Rigidbody rigidbody : rigidbodies) {
             if (rigidbody == null || rigidbody.simID != simID) continue;
             if (rigidbody.lockedRotation) {
                 rigidbody.angularV = 0.0;
@@ -141,6 +145,9 @@ class Rigidbody {
             rigidbody.newvX = rigidbody.vX;
             rigidbody.newvY = rigidbody.vY;
             rigidbody.newangularV = rigidbody.angularV;
+        }
+        for (Rigidbody rigidbody : rigidbodies) {
+            if (rigidbody == null || rigidbody.simID != simID) continue;
             if (rigidbody.isMovable() && !rigidbody.isHitbox) {
                 rigidbody.calcMotion(dt);
             }
@@ -177,6 +184,10 @@ class Rigidbody {
             if (rigidbody == null || rigidbody.simID != simID) continue;
             rigidbody.integrateMotion(dt);
         }
+
+        for (Rigidbody rigidbody : rigidbodies) {
+            if (rigidbody != null && rigidbody.simID == simID && !rigidbody.events.isEmpty()) rigidbody.respondToEvent(false);
+        }
     }
     static void updateMotion(double dt, int simID) {
         for (Rigidbody rigidbody : rigidbodies) {
@@ -184,6 +195,69 @@ class Rigidbody {
             rigidbody.updateMotion(dt);
         }
 
+    }
+    private void respondToEvent(boolean isPreUpdateLoop) {
+        try {
+            if (isHitbox && isPreUpdateLoop) {
+                Hitbox parent = sim.getHitbox("Rigidbody", ID);
+                for (int i = 0; i < collidingIDs.size(); i++) {
+                    PhysicsObjectIntersectionEvent objectEvent1 = null;
+                    PhysicsObjectIntersectionEvent objectEvent2 = null;
+                    HitboxIntersectionEvent hitboxEvent = null;
+                    if (collidingIDs.get(i) >= 0 && !Rigidbody.get(collidingIDs.get(i)).isHitbox) objectEvent1 = new PhysicsObjectIntersectionEvent(sim.getObject("Rigidbody", collidingIDs.get(i)), parent);
+                    else if (collidingIDs.get(i) >= 0) hitboxEvent = new HitboxIntersectionEvent(parent, sim.getHitbox("Rigidbody", collidingIDs.get(i)));
+                    else if (collidingIDs.get(i) <= -2) {
+                        objectEvent1 = new PhysicsObjectIntersectionEvent(sim.getObject("Rigidbody", -collidingIDs.get(i) - 2), parent);
+                        objectEvent2 = new PhysicsObjectIntersectionEvent(sim.getObject("Rigidbody", -collidingIDs.get(i + 1) - 2), parent);
+                        i++;
+                    }
+                    else if (collidingIDs.get(i) == -1) hitboxEvent = new HitboxIntersectionEvent(parent, null);
+
+                    if (objectEvent1 != null) for (EventListener event : events) event.intersected(objectEvent1);
+                    if (objectEvent2 != null) for (EventListener event : events) event.intersected(objectEvent2);
+                    if (hitboxEvent != null) for (EventListener event : events) event.intersected(hitboxEvent);
+                }
+            }
+            else if (!isHitbox) {
+                PhysicsObject parent = sim.getObject("Rigidbody", ID);
+                for (int i = 0; i < collidingIDs.size(); i++) {
+                    double[] normal = new double[]{MTVs.get(i)[0], MTVs.get(i)[1]};
+                    double magnitude = Math.sqrt(normal[0] * normal[0] + normal[1] * normal[1]);
+                    normal[0] /= magnitude;
+                    normal[1] /= magnitude;
+                    double[] pointOfContact = new double[]{contactPoints.get(i)[0], contactPoints.get(i)[1]};
+                    CollisionEvent collisionEvent1 = null;
+                    CollisionEvent collisionEvent2 = null;
+                    if (collidingIDs.get(i) >= 0 && !Rigidbody.get(collidingIDs.get(i)).isHitbox) {
+                        collisionEvent1 = new CollisionEvent(parent, sim.getObject("Rigidbody", collidingIDs.get(i)), normal, pointOfContact, false);
+                    } else if (collidingIDs.get(i) <= -2) {
+                        collisionEvent1 = new CollisionEvent(parent, sim.getObject("Rigidbody", -collidingIDs.get(i) - 2), normal, pointOfContact, true);
+                        collisionEvent2 = new CollisionEvent(parent, sim.getObject("Rigidbody", -collidingIDs.get(i + 1) - 2), normal, pointOfContact, true);
+                        i++;
+                    } else if (collidingIDs.get(i) == -1) {
+                        collisionEvent1 = new CollisionEvent(parent, null, normal, pointOfContact, false);
+                    }
+
+                    if (collisionEvent1 != null) for (EventListener event : events) {
+                        if (isPreUpdateLoop && collisionEvent2 == null) event.collidedPre(collisionEvent1);
+                        else if (isPreUpdateLoop) {
+                            event.collidedPre(collisionEvent1);
+                            event.collidedPre(collisionEvent2);
+                        }
+
+                        //null for the second event indicates joint
+                        if (!isPreUpdateLoop && collisionEvent2 == null) event.collidedPost(collisionEvent1);
+                        else if (!isPreUpdateLoop) {
+                            event.collidedPost(collisionEvent1);
+                            event.collidedPost(collisionEvent2);
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception _) {
+
+        }
     }
     private void updateMotion(double dt) {
         //clamp some values
@@ -314,7 +388,7 @@ class Rigidbody {
                 }
                 for (int j = i + 1; j < rigidbody.contactPoints.size(); j = j + 1) {
                     if (i != j) {
-                        if ((rigidbody.isHitbox) && Objects.equals(rigidbody.collidingIDs.get(i), rigidbody.collidingIDs.get(j))) {
+                        if (rigidbody.isHitbox && Objects.equals(rigidbody.collidingIDs.get(i), rigidbody.collidingIDs.get(j))) {
                             rigidbody.collidingIDs.set(j, -11);
                             continue;
                         }
@@ -602,15 +676,13 @@ class Rigidbody {
         //the velocity of the joint at the point of the collision is a linear interpolation between points A and B
         double vimprel = (vX + angularV * rPerp1x) * nX + (vY + angularV * rPerp1y) * nY - ((temp2 - temp1) * t + temp1);
 
+        if (vimprel > 0.0) return 0;
+
         temp1 = (joint1.getVX() + joint1.getAngularV() * r2APerp[0]) * -nY + (joint1.getVY() + joint1.getAngularV() * r2APerp[1]) * nX;
         temp2 = (joint2.getVX() + joint2.getAngularV() * r2BPerp[0]) * -nY + (joint2.getVY() + joint2.getAngularV() * r2BPerp[1]) * nX;
         double vtrel = (vX + angularV * rPerp1x) * -nY + (vY + angularV * rPerp1y) * nX - ((temp2 - temp1) * t + temp1);
 
-        int countOfValidCollisionImpulses = 0;
-        if (vimprel > 0.0) {
-            return countOfValidCollisionImpulses;
-        }
-        else countOfValidCollisionImpulses++;
+
 
         //calculate relevant dot products
         double r2APerpndot = r2APerp[0] * nX + r2APerp[1] * nY;
@@ -677,7 +749,7 @@ class Rigidbody {
             joint2.newposY += MTVs.get(h)[1] * multiplier;
         }
 
-        return countOfValidCollisionImpulses;
+        return 1;
     }
     private double[] calculateGravity() {
         double sumaX = 0.0;

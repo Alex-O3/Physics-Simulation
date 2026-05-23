@@ -92,6 +92,16 @@ public class PhysicsObject {
 
     /**
      *
+     * @param listener
+     */
+    public void addEventListener(EventListener listener) {
+        if (whatAmI.getFirstString().equals("Rigidbody")) {
+            rigidbody.events.add(listener);
+        }
+    }
+
+    /**
+     *
      * @boolean visible, whether this object can be drawn in the native JFrame display.
      */
      public void setVisible(boolean visible) {
@@ -197,6 +207,29 @@ public class PhysicsObject {
             return false;
         }
         throw new Exception("Physics object cannot be an obstacle, nor can it not be an obstacle.");
+    }
+
+    /**
+     *
+     * @return boolean whether it is part of a softbody or not, false if it is a softbody itself.
+     */
+    public boolean isPartOfSoftbody() {
+        return getParentSoftbody() != null && !whatAmI.getFirstString().equals("Softbody");
+    }
+    /**
+     *
+     * @return the parent softbody of this object if is a member of a softbody. Returns null if it is not and itself if it is a softbody.
+     */
+    public PhysicsObject getParentSoftbody() {
+        try {
+            if (whatAmI.getFirstString().equals("Rigidbody") && rigidbody.parentSoftbody != -1)
+                return Simulation.get(whatAmI.getThirdInt()).getObject("Softbody", rigidbody.parentSoftbody);
+            else if (whatAmI.getFirstString().equals("Softbody")) return this;
+        }
+        catch (Exception _) {
+
+        }
+        return null;
     }
 
 
@@ -346,7 +379,10 @@ public class PhysicsObject {
                          if (Rigidbody.get(rigidbody.collidingIDs.get(i)).isHitbox) continue;
                          PhysicsObject other = Simulation.get(whatAmI.getThirdInt()).getObject("Rigidbody", rigidbody.collidingIDs.get(i));
                          returnArray.add(other);
-                         if (other.rigidbody.parentSoftbody != -1) returnArray.add(Simulation.get(whatAmI.getThirdInt()).getObject("Softbody", other.rigidbody.parentSoftbody));
+                         if (other.rigidbody.parentSoftbody != -1) {
+                             PhysicsObject otherSoftbody = Simulation.get(whatAmI.getThirdInt()).getObject("Softbody", other.rigidbody.parentSoftbody);
+                             if (!returnArray.contains(otherSoftbody)) returnArray.add(otherSoftbody);
+                         }
                      }
                  }
                  break;
@@ -389,7 +425,7 @@ public class PhysicsObject {
     /**
      * Removes the attachment of this index, which can be found through describeAllJoints. Removing a joint shifts joint indices.
      * Removing attachments recalculates compound and connected body groups. If a joint cannot be removed, it is not, but no error occurs.
-     * Joints cannot be removed if part of a softbody.
+     * Joints cannot be removed if they are part of a softbody.
      * @param index of the removed attachment.
      */
     public void removeAttachment(int index) {

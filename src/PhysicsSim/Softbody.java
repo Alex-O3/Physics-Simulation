@@ -479,6 +479,11 @@ class Softbody {
         }
         return SoftbodyType.SpringMass;
     }
+    public boolean selfCollides() {
+        SoftbodyType type = getType();
+        if (simID == -1 || !Simulation.get(simID).hollowSoftbodiesSelfCollide) return false;
+        return type == SoftbodyType.PressureSpring || type == SoftbodyType.ShapeMatchHollow;
+    }
 
 
     public Color getColor() {

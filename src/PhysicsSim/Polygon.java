@@ -455,6 +455,7 @@ class Polygon extends GeometricType {
     @Override
     boolean pointInside(double[] point) {
         double[] testPoint = new double[]{point[0] - Rigidbody.get(getParentRigidbodyID()).getPosX(), point[1] - Rigidbody.get(getParentRigidbodyID()).getPosY()};
+        if (testPoint[0] > rightBoundBox || testPoint[0] < leftBoundBox || testPoint[1] < topBoundBox || testPoint[1] > bottomBoundBox) return false;
         int raycastCount = 0;
         for (int i = 0; i < xPoints.size(); i = i + 1) {
             double minX = xPoints.get(i);
@@ -469,7 +470,7 @@ class Polygon extends GeometricType {
                 maxX = temp;
                 maxXindex = tempIndex;
             }
-            if (testPoint[0] > minX && testPoint[0] < maxX && ((yPoints.get(maxXindex) - yPoints.get(minXindex)) / (maxX - minX)) * (testPoint[0] - maxX) + yPoints.get(maxXindex) > testPoint[1]) {
+            if (testPoint[0] >= minX && testPoint[0] <= maxX && ((yPoints.get(maxXindex) - yPoints.get(minXindex)) / (maxX - minX)) * (testPoint[0] - maxX) + yPoints.get(maxXindex) >= testPoint[1]) {
                 raycastCount = raycastCount + 1;
             }
         }

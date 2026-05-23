@@ -187,7 +187,7 @@ class ConvexPolygon { //this class is closely tied to the Polygon class
             }
             double orthoNormalPos = otherX[otherDotBoundsIndices[0]] * -normalY[i] + otherY[otherDotBoundsIndices[0]] * normalX[i];
 
-            if ((Double.isNaN(overlap) || tempOverlap < overlap) && orthoNormalPos < referenceEdgeDotMax && orthoNormalPos > referenceEdgeDotMin) {
+            if ((Double.isNaN(overlap) || tempOverlap < overlap) && orthoNormalPos <= referenceEdgeDotMax && orthoNormalPos >= referenceEdgeDotMin) {
                 overlap = tempOverlap;
                 overlapAssociatedDot = otherDotBounds[0];
                 incidentEdgeIndex = otherDotBoundsIndices[0];
@@ -241,7 +241,7 @@ class ConvexPolygon { //this class is closely tied to the Polygon class
             }
             double orthoNormalPos = myX[myDotBoundsIndices[0]] * -otherConvex.normalY[i] + myY[myDotBoundsIndices[0]] * otherConvex.normalX[i];
 
-            if ((Double.isNaN(overlap) || tempOverlap < overlap) && orthoNormalPos < referenceEdgeDotMax && orthoNormalPos > referenceEdgeDotMin) {
+            if ((Double.isNaN(overlap) || tempOverlap < overlap) && orthoNormalPos <= referenceEdgeDotMax && orthoNormalPos >= referenceEdgeDotMin) {
                 overlap = tempOverlap;
                 overlapAssociatedDot = myDotBounds[0];
                 incidentEdgeIndex = myDotBoundsIndices[0];

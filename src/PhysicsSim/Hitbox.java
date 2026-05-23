@@ -54,6 +54,12 @@ public class Hitbox {
     public void wake() {
         rigidbody.simID = whatAmI.getThirdInt();
     }
+    public void addEventListener(EventListener listener) {
+        if (whatAmI.getFirstString().equals("Rigidbody")) {
+            rigidbody.events.add(listener);
+        }
+    }
+
     /**
      *
      * @boolean visible, whether this object can be drawn in the native JFrame display.

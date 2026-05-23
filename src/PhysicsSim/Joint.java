@@ -80,11 +80,13 @@ class Joint {
         if (joint1 != null) {
             if (joint1.parent.ID == parentID2 || joint1.connection.ID == parentID2) return true;
             //determine if we should ignore it because they belong to same softbody
-            if (parentID2 != -1 && Rigidbody.get(parentID2).parentSoftbody != -1 && (joint1.parent.parentSoftbody == Rigidbody.get(parentID2).parentSoftbody || joint1.connection.parentSoftbody == Rigidbody.get(parentID2).parentSoftbody) && Softbody.get(joint1.parent.parentSoftbody).getType() != SoftbodyType.PressureSpring) return true;
+            if (parentID2 != -1 && Rigidbody.get(parentID2).parentSoftbody != -1 && (joint1.parent.parentSoftbody == Rigidbody.get(parentID2).parentSoftbody || joint1.connection.parentSoftbody == Rigidbody.get(parentID2).parentSoftbody)
+                    && !Softbody.get(joint1.parent.parentSoftbody).selfCollides()) return true;
         }
         if (joint2 != null) {
             if (joint2.parent.ID == parentID1 || joint2.connection.ID == parentID1) return true;
-            if (parentID1 != -1 && Rigidbody.get(parentID1).parentSoftbody != -1 && (joint2.parent.parentSoftbody == Rigidbody.get(parentID1).parentSoftbody || joint2.connection.parentSoftbody == Rigidbody.get(parentID1).parentSoftbody) && Softbody.get(joint2.parent.parentSoftbody).getType() != SoftbodyType.PressureSpring) return true;
+            if (parentID1 != -1 && Rigidbody.get(parentID1).parentSoftbody != -1 && (joint2.parent.parentSoftbody == Rigidbody.get(parentID1).parentSoftbody || joint2.connection.parentSoftbody == Rigidbody.get(parentID1).parentSoftbody)
+                    && !Softbody.get(joint2.parent.parentSoftbody).selfCollides()) return true;
         }
         return false;
     }
