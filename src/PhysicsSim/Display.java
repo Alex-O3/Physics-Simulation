@@ -33,7 +33,7 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
     private double vmYDisplay = 0.0;
     private boolean mousePressed = false;
     private double timeElapsed = 0.0;
-    private double lastTime = System.currentTimeMillis() / 1000.0;
+    private long lastTime = System.currentTimeMillis();
 
     public boolean hasController = false;
     public char keyPressed;
@@ -42,7 +42,8 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
     public boolean keyReleased = true;
     public boolean keyReleasedFirstTime = false;
     public char keyReleasedForTheFirstTime;
-    public double lastKeyTime = System.currentTimeMillis();
+    public boolean hasFocus = true;
+    public long lostFocusAt = System.currentTimeMillis();
 
     public boolean playerLock = false;
 
@@ -72,6 +73,19 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
         this.setFocusTraversalKeysEnabled(false);
         this.requestFocus();
         SwingUtilities.invokeLater(this::requestFocusInWindow);
+
+        frame.addWindowFocusListener(new WindowFocusListener() {
+            @Override
+            public void windowGainedFocus(WindowEvent e) {
+                hasFocus = true;
+            }
+
+            @Override
+            public void windowLostFocus(WindowEvent e) {
+                hasFocus = false;
+                lostFocusAt = System.currentTimeMillis();
+            }
+        });
     }
     public void mouseDrag(double dt, int stepsPerFrame) {
         boolean isInside = false;
@@ -93,7 +107,6 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
         if (playerLock) {
             removeMouseListener(this);
             removeMouseMotionListener(this);
-            //removeMouseWheelListener(this);
             mouse = false;
         }
 
@@ -126,7 +139,10 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
                 Triplet drawInformation = rigidbody.getDraw(shiftX, resolutionCenterX, pixelShiftX,
                         shiftY, resolutionCenterY, pixelShiftY, resolutionScaling);
                 g.setColor(rigidbody.geometry.getColor());
-                switch (drawInformation.getFirstRigidbodyGeometries()) {
+                if (rigidbody.geometry.getLargestDistance() / resolutionScaling < 1.0) {
+                    g.fillRect(convertX(rigidbody.getPosX()), convertY(rigidbody.getPosY()), 1, 1);
+                }
+                else switch (drawInformation.getFirstRigidbodyGeometries()) {
                     case Polygon: {
                         int[] x = drawInformation.getSecondIntArray();
                         int[] y = drawInformation.getThirdIntArray();
@@ -197,8 +213,8 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
                             pos2 = new double[]{joint.parent.getPosX() + joint.offsetFromCMParent[0] + joint.bounds[0] * joint.minDistMultiplier, joint.parent.getPosY() + joint.offsetFromCMParent[1] + joint.bounds[1] * joint.minDistMultiplier};
                         }
                         else {
-                            pos1 = new double[]{joint.connection.getPosX() + joint.offsetFromCMOther[0] - joint.bounds[0] * joint.maxDistMultiplier, joint.connection.getPosY() + joint.offsetFromCMOther[1] - joint.bounds[1] * joint.maxDistMultiplier};
-                            pos2 = new double[]{joint.connection.getPosX() + joint.offsetFromCMOther[0] - joint.bounds[0] * joint.minDistMultiplier, joint.connection.getPosY() + joint.offsetFromCMOther[1] - joint.bounds[1] * joint.minDistMultiplier};
+                            pos1 = new double[]{joint.connection.getPosX() + joint.offsetFromCMOther[0] + joint.bounds[0] * joint.maxDistMultiplier, joint.connection.getPosY() + joint.offsetFromCMOther[1] + joint.bounds[1] * joint.maxDistMultiplier};
+                            pos2 = new double[]{joint.connection.getPosX() + joint.offsetFromCMOther[0] + joint.bounds[0] * joint.minDistMultiplier, joint.connection.getPosY() + joint.offsetFromCMOther[1] + joint.bounds[1] * joint.minDistMultiplier};
                         }
                         g.drawLine(convertX(pos1[0]), convertY(pos1[1]), convertX(pos2[0]), convertY(pos2[1]));
                     }
@@ -287,7 +303,7 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
     }
 
     private void updateMouseInfo(double x, double y) {
-        double currentTime = System.currentTimeMillis();
+        long currentTime = System.currentTimeMillis();
         timeElapsed = (currentTime - lastTime) / 1000.0;
         lastTime = currentTime;
         mouseX = reverseConvertX(x);
@@ -371,7 +387,6 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
         keyPressed = input;
         if (!keysCache.contains(keyPressed)) keysCache.add(keyPressed);
         keyReleased = false;
-        lastKeyTime = System.currentTimeMillis();
     }
     public void releaseKey(char input) {
         if (keysCache.contains((Character)input)) {
@@ -387,7 +402,9 @@ class Display extends JPanel implements MouseListener, MouseMotionListener, Mous
 
     @Override
     public void keyPressed(KeyEvent e) {
-        pressKey(e.getKeyChar());
+        if (!keysCache.contains(e.getKeyChar())) {
+            pressKey(e.getKeyChar());
+        }
     }
 
     @Override

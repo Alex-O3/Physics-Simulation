@@ -1,5 +1,7 @@
 package PhysicsSim;
 
+import java.util.ArrayList;
+
 class Joint {
     final Rigidbody parent;
     final Rigidbody connection;
@@ -125,7 +127,8 @@ class Joint {
                                             double[] direction, double[] bounds, boolean isTranslationalParent) {
         return new Joint(parent, connection, otherOffset, thisOffset, direction, bounds, isTranslationalParent, JointType.Translational);
     }
-    public double[] calculateJointForceImpulseShift() {
+    public double[] calculateJointForceShift() {
+        if (type == JointType.Weld) return new double[5];
         double dx = (connection.getPosX() + offsetFromCMOther[0]) - (parent.getPosX() + offsetFromCMParent[0]);
         double dy = (connection.getPosY() + offsetFromCMOther[1]) - (parent.getPosY() + offsetFromCMParent[1]);
         double distance = Math.sqrt(dx * dx + dy * dy);
@@ -135,8 +138,8 @@ class Joint {
             nX = 0.0;
             nY = 0.0;
         }
-        //0 is x force, 1 is y force, 2 is torque, 3 is x impulse, 4 is y impulse, 5 is angular momentum, 6 is x shift, 7 is y shift
-        double[] returnArray = new double[8];
+        //0 is x force, 1 is y force, 2 is torque, 3 is x shift, 4 is y shift
+        double[] returnArray = new double[5];
 
         //spring effects
         //these are the soft constraints (distance-constrain joints are spring joints under the hood)
@@ -156,54 +159,109 @@ class Joint {
 
             //distance constraint impulses
             if (maxDistMultiplier > 0.0 && distance > idealDistance * maxDistMultiplier) {
-                multiplier = (distance - idealDistance * maxDistMultiplier) * (connection.isMovable() ? (connection.getMass() / (connection.getMass() + parent.getMass())) : 1.0);
-                returnArray[6] = nX * multiplier;
-                returnArray[7] = nY * multiplier;
-                if (vdotN < 0.0) {
-                    double rPerp1nDot = -offsetFromCMParent[1] * nX + offsetFromCMParent[0] * nY;
-                    double rPerp2nDot = -offsetFromCMOther[1] * nX + offsetFromCMOther[0] * nY;
-                    double j = (1.0 / parent.getMass()) + (connection.isMovable() ? (1.0 / connection.getInertia()) : 0.0) + (1.0 / parent.getInertia()) * rPerp1nDot * rPerp1nDot +
-                            ((connection.isMovable() && !connection.lockedRotation()) ? (1.0 / connection.getInertia()) : 0.0) * rPerp2nDot * rPerp2nDot;
-                    j = -vdotN / j;
-                    returnArray[3] += j * nX;
-                    returnArray[4] += j * nY;
-                    returnArray[5] += rPerp1nDot * j;
-                }
+                multiplier = (distance - idealDistance * maxDistMultiplier) * (connection.isMovable() ? (connection.getCompoundMass() / (connection.getCompoundMass() + parent.getCompoundMass())) : 1.0);
+                returnArray[3] = nX * multiplier;
+                returnArray[4] = nY * multiplier;
             }
             else if (minDistMultiplier > 0.0 && distance < idealDistance * minDistMultiplier) {
-                multiplier = (distance - idealDistance * minDistMultiplier) * (connection.isMovable() ? (connection.getMass() / (connection.getMass() + parent.getMass())) : 1.0);
-                returnArray[6] = nX * multiplier;
-                returnArray[7] = nY * multiplier;
-                if (vdotN > 0.0) {
-                    double rPerp1nDot = -offsetFromCMParent[1] * nX + offsetFromCMParent[0] * nY;
-                    double rPerp2nDot = -offsetFromCMOther[1] * nX + offsetFromCMOther[0] * nY;
-                    double j = (1.0 / parent.getMass()) + (connection.isMovable() ? (1.0 / connection.getInertia()) : 0.0) + (1.0 / parent.getInertia()) * rPerp1nDot * rPerp1nDot +
-                            ((connection.isMovable() && !connection.lockedRotation()) ? (1.0 / connection.getInertia()) : 0.0) * rPerp2nDot * rPerp2nDot;
-                    j = -vdotN / j;
-                    returnArray[3] += j * nX;
-                    returnArray[4] += j * nY;
-                    returnArray[5] += rPerp1nDot * j;
-                }
+                multiplier = (distance - idealDistance * minDistMultiplier) * (connection.isMovable() ? (connection.getCompoundMass() / (connection.getCompoundMass() + parent.getCompoundMass())) : 1.0);
+                returnArray[3] = nX * multiplier;
+                returnArray[4] = nY * multiplier;
             }
         }
 
         //pin effects
         //these are the hard constraints
-        if (type == JointType.Pin || type == JointType.Revolute || type == JointType.Weld) {
-            double multiplier = distance * (connection.isMovable() ? (connection.getMass() / (connection.getMass() + parent.getMass())) : 1.0);
-            returnArray[6] = nX * multiplier;
-            returnArray[7] = nY * multiplier;
-            boolean pinOnly = true;
+        if (type == JointType.Pin || type == JointType.Revolute) {
+            double multiplier = distance * (connection.isMovable() ? (connection.getCompoundMass() / (connection.getCompoundMass() + parent.getCompoundMass())) : 1.0);
+            returnArray[3] = nX * multiplier;
+            returnArray[4] = nY * multiplier;
+        }
+
+        if (type == JointType.Translational) {
+            if (!isTranslationalParent) {
+                dx = -dx;
+                dy = -dy;
+            }
+            double boundsDistance = dx * bounds[0] + dy * bounds[1];
+
+            //if moving out, take pin approach
+            if (boundsDistance > maxDistMultiplier || boundsDistance < minDistMultiplier) {
+                if (boundsDistance > maxDistMultiplier) {
+                    dx -= bounds[0] * maxDistMultiplier;
+                    dy -= bounds[1] * maxDistMultiplier;
+                }
+                else {
+                    dx -= bounds[0] * minDistMultiplier;
+                    dy -= bounds[1] * minDistMultiplier;
+                }
+                distance = Math.sqrt(dx * dx + dy * dy);
+                nX = dx / distance;
+                nY = dy / distance;
+                double multiplier = distance * (connection.isMovable() ? (connection.getCompoundMass() / (connection.getCompoundMass() + parent.getCompoundMass())) : 1.0);
+                returnArray[3] = nX * multiplier;
+                returnArray[4] = nY * multiplier;
+                if (!isTranslationalParent) {
+                    returnArray[3] = -returnArray[3];
+                    returnArray[4]= -returnArray[4];
+                }
+            }
+            else {
+                distance = dx * -bounds[1] + dy * bounds[0];
+                double multiplier = distance * (connection.isMovable() ? (connection.getCompoundMass() / (connection.getCompoundMass() + parent.getCompoundMass())) : 1.0);
+                returnArray[3] = -bounds[1] * multiplier;
+                returnArray[4] = bounds[0] * multiplier;
+                if (!isTranslationalParent) {
+                    returnArray[3] = -returnArray[3];
+                    returnArray[4] = -returnArray[4];
+                }
+            }
+        }
+        return returnArray;
+    }
+    public void calculateJointImpulseConstraints(ArrayList<Triplet> constraintInfo, ArrayList<Triplet> applicationInfo, ArrayList<int[]> bodyInfo) {
+        double dx = (connection.getPosX() + offsetFromCMOther[0]) - (parent.getPosX() + offsetFromCMParent[0]);
+        double dy = (connection.getPosY() + offsetFromCMOther[1]) - (parent.getPosY() + offsetFromCMParent[1]);
+        double distance = Math.sqrt(dx * dx + dy * dy);
+        double[] n = new double[]{dx / distance, dy / distance};
+        if (Double.isNaN(n[0]) || Double.isNaN(n[1])) {
+            n[0] = 0.0;
+            n[1] = 0.0;
+        }
+        double[] rPerp1 = new double[]{-offsetFromCMParent[1], offsetFromCMParent[0]};
+        double[] rPerp2 = new double[]{-offsetFromCMOther[1], offsetFromCMOther[0], (connection.isMovable() ? 1.0 / connection.getMass() : 0.0), (connection.isMovable() && !connection.lockedRotation() ? 1.0 / connection.getInertia() : 0.0)};
+        //0 is x force, 1 is y force, 2 is torque, 3 is x impulse, 4 is y impulse, 5 is angular momentum, 6 is x shift, 7 is y shift
+
+        //spring effects
+        //these are the soft constraints (distance-constraint joints are spring joints under the hood)
+        if (type == JointType.Spring || type == JointType.Softbody) {
+            double vdotN = (parent.getVX() - offsetFromCMParent[1] * parent.getAngularV() - connection.getVX() + offsetFromCMOther[1] * connection.getAngularV()) * n[0]
+                    + (parent.getVY() + offsetFromCMParent[0] * parent.getAngularV() - connection.getVY() - offsetFromCMOther[0] * connection.getAngularV()) * n[1];
+            //distance constraint impulses
+            if ((maxDistMultiplier > 0.0 && distance > idealDistance * maxDistMultiplier && vdotN < 0.0) || (minDistMultiplier > 0.0 && distance < idealDistance * minDistMultiplier && vdotN > 0.0)) {
+                constraintInfo.add(new Triplet(rPerp1, n, -vdotN));
+                applicationInfo.add(new Triplet(rPerp1, rPerp2, n));
+                bodyInfo.add(new int[]{connection.ID});
+            }
+        }
+
+        //pin effects
+        //these are the hard constraints
+        if (type == JointType.Pin || type == JointType.Revolute) {
+            double vxRelChange = -(parent.getVX() + rPerp1[0] * parent.getAngularV() - connection.getVX() - rPerp2[0] * connection.getAngularV());
+            double vyRelChange = -(parent.getVY() + rPerp1[1] * parent.getAngularV() - connection.getVY() - rPerp2[1] * connection.getAngularV());
+
+            constraintInfo.add(new Triplet(rPerp1, new double[]{1.0, 0.0}, vxRelChange));
+            applicationInfo.add(new Triplet(rPerp1, rPerp2, new double[]{1.0, 0.0}));
+            bodyInfo.add(new int[]{connection.ID});
+            constraintInfo.add(new Triplet(rPerp1, new double[]{0.0, 1.0}, vyRelChange));
+            applicationInfo.add(new Triplet(rPerp1, rPerp2, new double[]{0.0, 1.0}));
+            bodyInfo.add(new int[]{connection.ID});
+
             if (type == JointType.Revolute) {
-                //this is the simple approach that might change to effectively couple the revolute impulse, but for now
-                //as astute "viewers" may have noticed, some of the comments in my code are outdated, even deprecated. But, this is how this
-                //part actually works: the torque and impulse factors are coupled only when the angle constraint is violated.
                 double angle = Math.atan2(offsetFromCMParent[1] * offsetFromCMOther[0] - offsetFromCMParent[0] * offsetFromCMOther[1],
                         -offsetFromCMParent[0] * offsetFromCMOther[0] - offsetFromCMParent[1] * offsetFromCMOther[1]);
-                boolean inBounds = (bounds[0] < bounds[1] && angle < bounds[1] && angle > bounds[0]);
-                inBounds = inBounds || (bounds[0] > bounds[1] && !(angle < bounds[0] && angle > bounds[1]));;
-                if (!inBounds) pinOnly = false;
-                double c12 = -parent.getAngularV() + connection.getAngularV();
+                double angularVRelChange = -parent.getAngularV() + connection.getAngularV();
                 double angleViolation = 0.0;
                 double angleAverage = 0.5 * (bounds[0] + bounds[1]);
                 if (angle > bounds[1] && (bounds[0] < bounds[1] || angle < angleAverage)) {
@@ -213,129 +271,82 @@ class Joint {
                     angleViolation = angle - bounds[0];
                 }
 
-                if (angleViolation * c12 > 0.0) {
-                    pinOnly = false;
-                    double inverseM1 = 1.0 / parent.getMass();
-                    double inverseI1 = !parent.lockedRotation() ? 1.0 / parent.getInertia() : 0.0;
-                    double inverseM2 = connection.isMovable() ? 1.0 / connection.getMass() : 0.0;
-                    double inverseI2 = (connection.isMovable() && !connection.lockedRotation()) ? 1.0 / connection.getInertia() : 0.0;
-                    double r1px = -offsetFromCMParent[1];
-                    double r1py = offsetFromCMParent[0];
-                    double r2px = -offsetFromCMOther[1];
-                    double r2py = offsetFromCMOther[0];
-
-                    double c1 = inverseI1 * r1px + inverseI2 * r2px;
-                    double c2 = inverseM1 + inverseM2 + inverseI1 * r1px * r1px + inverseI2 * r2px * r2px;
-                    double c3 = inverseI1 * r1px * r1py + inverseI2 * r2px * r2py;
-                    double c4 = -(parent.getVX() + parent.getAngularV() * r1px) + (connection.getVX() + connection.getAngularV() * r2px);
-                    double c5 = inverseI1 * r1py + inverseI2 * r2py;
-                    double c6 = c3;
-                    double c7 = inverseM1 + inverseM2 + inverseI1 * r1py * r1py + inverseI2 * r2py * r2py;
-                    double c8 = -(parent.getVY() + parent.getAngularV() * r1py) + (connection.getVY() + connection.getAngularV() * r2py);
-                    double c9 = inverseI1 + inverseI2;
-                    double c10 = c1;
-                    double c11 = c5;
-
-                    double D = c6 * c11 * c1 - c10 * c7 * c1 - c5 * c11 * c2 + c9 * c7 * c2 + c5 * c10 * c3 - c6 * c9 * c3;
-                    double tau = c6 * c11 * c4 - c10 * c7 * c4 - c8 * c11 * c2 + c12 * c7 * c2 + c8 * c10 * c3 - c6 * c12 * c3;
-                    tau /= D;
-                    double jcX = c8 * c11 * c1 - c12 * c7 * c1 - c5 * c11 * c4 + c9 * c7 * c4 + c5 * c12 * c3 - c8 * c9 * c3;
-                    jcX /= D;
-                    double jcY = c6 * c12 * c1 - c10 * c8 * c1 - c5 * c12 * c2 + c9 * c8 * c2 + c5 * c10 * c4 - c6 * c9 * c4;
-                    jcY /= D;
-
-                    returnArray[3] += jcX;
-                    returnArray[4] += jcY;
-                    returnArray[5] += jcX * r1px + jcY * r1py + tau;
+                if (angleViolation * angularVRelChange > 0.0) {
+                    double[] nullArr = null;
+                    constraintInfo.add(new Triplet(nullArr, nullArr, angularVRelChange));
+                    //the first two values of rPerp2 are not used, but the two inverse values are.
+                    applicationInfo.add(new Triplet(nullArr, rPerp2, nullArr));
+                    bodyInfo.add(new int[]{connection.ID});
                 }
-            }
-            if (pinOnly) {
-                double[] rPerp1 = new double[]{-offsetFromCMParent[1], offsetFromCMParent[0]};
-                double[] rPerp2 = new double[]{-offsetFromCMOther[1], offsetFromCMOther[0]};
-                double vxRelChange = -(parent.getVX() + rPerp1[0] * parent.getAngularV() - connection.getVX() - rPerp2[0] * connection.getAngularV());
-                double vyRelChange = -(parent.getVY() + rPerp1[1] * parent.getAngularV() - connection.getVY() - rPerp2[1] * connection.getAngularV());
-                double myInverseMass = 1.0 / parent.getMass();
-                double myInverseInertia = !parent.lockedRotation() ? 1.0 / parent.getInertia() : 0.0;
-                double otherInverseMass = (connection.isMovable() ? (1.0 / connection.getMass()) : 0.0);
-                double otherInverseInertia = ((connection.isMovable() && !connection.lockedRotation()) ? (1.0 / connection.getInertia()) : 0.0);
-                double c1 = myInverseMass + myInverseInertia * rPerp1[0] * rPerp1[0]
-                        + otherInverseMass + otherInverseInertia * rPerp2[0] * rPerp2[0];
-                double c2 = myInverseInertia * rPerp1[0] * rPerp1[1] + otherInverseInertia * rPerp2[0] * rPerp2[1];
-                double c4 = myInverseMass + myInverseInertia * rPerp1[1] * rPerp1[1] +
-                        otherInverseMass + otherInverseInertia * rPerp2[1] * rPerp2[1];
-
-                double jrX = (c2 * vyRelChange - c4 * vxRelChange) / (c2 * c2 - c1 * c4);
-                double jrY = (c2 * vxRelChange - c1 * vyRelChange) / (c2 * c2 - c1 * c4);
-                returnArray[3] += jrX;
-                returnArray[4] += jrY;
-                returnArray[5] += jrX * rPerp1[0] + jrY * rPerp1[1];
             }
         }
 
         if (type == JointType.Translational) {
+            if (!isTranslationalParent) {
+                dx = -dx;
+                dy = -dy;
+            }
             double boundsDistance = dx * bounds[0] + dy * bounds[1];
 
-            double myInverseMass = 1.0 / parent.getMass();
-            double myInverseInertia = !parent.lockedRotation() ? 1.0 / parent.getInertia() : 0.0;
-            double otherInverseMass = (connection.isMovable() ? (1.0 / connection.getMass()) : 0.0);
-            double otherInverseInertia = ((connection.isMovable() && !connection.lockedRotation()) ? (1.0 / connection.getInertia()) : 0.0);
-            double[] rPerp1 = new double[]{-offsetFromCMParent[1], offsetFromCMParent[0]};
-            double[] rPerp2 = new double[]{-offsetFromCMOther[1], offsetFromCMOther[0]};
 
             //if moving out, take pin approach
+            //the multipliers here are used on bound limits
             if (boundsDistance > maxDistMultiplier || boundsDistance < minDistMultiplier) {
                 if (boundsDistance > maxDistMultiplier) {
-                    dx -= bounds[0] * maxDistMultiplier;
-                    dy -= bounds[1] * maxDistMultiplier;
+                    if (isTranslationalParent) {
+                        rPerp1[0] = rPerp1[0] - bounds[1] * maxDistMultiplier;
+                        rPerp1[1] = rPerp1[1] + bounds[0] * maxDistMultiplier;
+                    }
+                    else {
+                        rPerp2[0] = rPerp2[0] - bounds[1] * maxDistMultiplier;
+                        rPerp2[1] = rPerp2[1] + bounds[0] * maxDistMultiplier;
+                    }
                 }
-                else if (boundsDistance < minDistMultiplier) {
-                    dx -= bounds[0] * minDistMultiplier;
-                    dy -= bounds[1] * minDistMultiplier;
+                else {
+                    if (isTranslationalParent) {
+                        rPerp1[0] = rPerp1[0] - bounds[1] * minDistMultiplier;
+                        rPerp1[1] = rPerp1[1] + bounds[0] * minDistMultiplier;
+                    }
+                    else {
+                        rPerp2[0] = rPerp2[0] - bounds[1] * minDistMultiplier;
+                        rPerp2[1] = rPerp2[1] + bounds[0] * minDistMultiplier;
+                    }
                 }
-                distance = Math.sqrt(dx * dx + dy * dy);
-                nX = dx / distance;
-                nY = dy / distance;
-                double multiplier = distance * (connection.isMovable() ? (connection.getMass() / (connection.getMass() + parent.getMass())) : 1.0);
-                returnArray[6] = nX * multiplier;
-                returnArray[7] = nY * multiplier;
-
-                double vxRelChange = -(parent.getVX() + rPerp1[0] * parent.getAngularV() - connection.getVX() - rPerp2[0] * connection.getAngularV());
-                double vyRelChange = -(parent.getVY() + rPerp1[1] * parent.getAngularV() - connection.getVY() - rPerp2[1] * connection.getAngularV());
-                double c1 = myInverseMass + myInverseInertia * rPerp1[0] * rPerp1[0]
-                        + otherInverseMass + otherInverseInertia * rPerp2[0] * rPerp2[0];
-                double c2 = myInverseInertia * rPerp1[0] * rPerp1[1] + otherInverseInertia * rPerp2[0] * rPerp2[1];
-                double c4 = myInverseMass + myInverseInertia * rPerp1[1] * rPerp1[1] +
-                        otherInverseMass + otherInverseInertia * rPerp2[1] * rPerp2[1];
-
-                double jrX = (c2 * vyRelChange - c4 * vxRelChange) / (c2 * c2 - c1 * c4);
-                double jrY = (c2 * vxRelChange - c1 * vyRelChange) / (c2 * c2 - c1 * c4);
-                returnArray[3] += jrX;
-                returnArray[4] += jrY;
-                returnArray[5] += jrX * rPerp1[0] + jrY * rPerp1[1];
             }
             else {
-                nX = -bounds[1];
-                nY = bounds[0];
-                distance = dx * nX + dy * nY;
-                double multiplier = distance * (connection.isMovable() ? (connection.getMass() / (connection.getMass() + parent.getMass())) : 1.0);
-                returnArray[6] = nX * multiplier;
-                returnArray[7] = nY * multiplier;
+                distance = dx * bounds[0] + dy * bounds[1];
+                dx = distance * bounds[0];
+                dy = distance * bounds[1];
+                if (isTranslationalParent) {
+                    rPerp1[0] = rPerp1[0] - dy;
+                    rPerp1[1] = rPerp1[1] + dx;
+                }
+                else {
+                    rPerp2[0] = rPerp2[0] - dy;
+                    rPerp2[1] = rPerp2[1] + dx;
+                }
+            }
+            n[0] = -bounds[1];
+            n[1] = bounds[0];
 
-                double ndotPerp1 = rPerp1[0] * nX + rPerp1[1] * nY;
-                double ndotPerp2 = rPerp2[0] * nX + rPerp2[1] * nY;
-                double vnRelChange = ((parent.getVX() + parent.getAngularV() * rPerp1[0]) - (connection.getVX() + connection.getAngularV() * rPerp2[0])) * nX;
-                vnRelChange += ((parent.getVY() + parent.getAngularV() * rPerp1[1]) - (connection.getVY() + connection.getAngularV() * rPerp2[1])) * nY;
-                vnRelChange = -vnRelChange;
-                double c1 = (myInverseMass + otherInverseMass + myInverseInertia * ndotPerp1 * ndotPerp1 + otherInverseInertia * ndotPerp2 * ndotPerp2);
-                double jr = vnRelChange / c1;
+            double vnRelChange = ((parent.getVX() + parent.getAngularV() * rPerp1[0]) - (connection.getVX() + connection.getAngularV() * rPerp2[0])) * n[0];
+            vnRelChange += ((parent.getVY() + parent.getAngularV() * rPerp1[1]) - (connection.getVY() + connection.getAngularV() * rPerp2[1])) * n[1];
+            vnRelChange = -vnRelChange;
 
-                returnArray[3] += jr * nX;
-                returnArray[4] += jr * nY;
-                returnArray[5] += jr * ndotPerp1;
+            constraintInfo.add(new Triplet(rPerp1, n, vnRelChange));
+            applicationInfo.add(new Triplet(rPerp1, rPerp2, n));
+            bodyInfo.add(new int[]{connection.ID});
+
+            double vtRel = (parent.getVX() + rPerp1[0] * parent.getAngularV() - connection.getVX() - rPerp2[0] * connection.getAngularV()) * -n[1];
+            vtRel += (parent.getVY() + rPerp1[1] * parent.getAngularV() - connection.getVY() - rPerp2[1] * connection.getAngularV()) * n[0];
+            vtRel *= isTranslationalParent ? -1.0 : 1.0;
+            if ((boundsDistance > maxDistMultiplier && vtRel < 0.0) || (boundsDistance < minDistMultiplier && vtRel > 0.0)) {
+                vtRel *= isTranslationalParent ? -1.0 : 1.0;
+                constraintInfo.add(new Triplet(rPerp1, new double[]{-n[1], n[0]}, -vtRel));
+                applicationInfo.add(new Triplet(rPerp1, rPerp2, new double[]{-n[1], n[0]}));
+                bodyInfo.add(new int[]{connection.ID});
             }
         }
-
-        return returnArray;
     }
     public void makeSolid() {
         if (!isSolid && canBeMadeSolid()) {

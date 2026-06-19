@@ -23,7 +23,7 @@ abstract class GeometricType {
     double largestDistanceSquared = 0.0;
     double largestDistance;
     private final int parentRigidbodyID;
-    final ArrayList<Integer> rememberedFacesToPass = new ArrayList<>();
+    final ArrayList<int[]> rememberedFacesToPass = new ArrayList<>();
 
     protected GeometricType(int parentRigidbodyID) {
         this.parentRigidbodyID = parentRigidbodyID;

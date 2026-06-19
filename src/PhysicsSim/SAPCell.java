@@ -67,13 +67,13 @@ class SAPCell {
         activelyChecked.clear();
     }
 
-     private boolean checkIfSameJoint(int boxIndex1, int boxIndex2) {
+    private boolean checkIfSameJoint(int boxIndex1, int boxIndex2) {
         Joint joint1 = aabbs.get(boxIndex1).solidJoint;
         Joint joint2 = aabbs.get(boxIndex2).solidJoint;
         int parentID1 = aabbs.get(boxIndex1).parentID;
         int parentID2 = aabbs.get(boxIndex2).parentID;
         return Joint.checkIfSameJoint(parentID1, parentID2, joint1, joint2);
-     }
+    }
     private static void insertionSort(ArrayList<Endpoint> endpointsList) {
         for (int i = 1; i < endpointsList.size(); i = i + 1) {
             if (endpointsList.get(i).value < endpointsList.get(i - 1).value || (endpointsList.get(i).value == endpointsList.get(i - 1).value && endpointsList.get(i).isMin)) { //here is the compare function

@@ -18,7 +18,7 @@ class Controller {
     int countUntilOffGround = 0;
     double[] lastGroundVelocity = new double[]{0.0, 0.0};
     //at 5 steps per frame, this is 2 frames
-    public int stepsUntilNotTouchingGround = 10;
+    public int stepsUntilNotTouchingGround = 24;
     public double velocityDecrementWhenInAir = 50.0;
 
     public Controller(char key, double initialVelocity, double releaseVelocity, double sustainedForce, double maxSpeed, double[] direction, Rigidbody rigidbody, char excludeIfKey) {
@@ -58,7 +58,7 @@ class Controller {
         }
         return new double[2];
     }
-    public void respondToKeyImpulse(double dt, ArrayList<Character> keysCache, boolean firstPress,
+    public boolean respondToKeyImpulse(double dt, ArrayList<Character> keysCache, boolean firstPress,
                              boolean release, boolean onGround, boolean touchingObject, double[] groundVelocity) {
         double[] windSpeed = Rigidbody.get(parentID).sim.WIND_SPEED;
         if (onGround) {
@@ -102,6 +102,7 @@ class Controller {
                     double newvX = newdotV * direction[0] - tdotV * direction[1];
                     double newvY = newdotV * direction[1] + tdotV * direction[0];
                     Rigidbody.get(parentID).setCompoundV(newvX + lastGroundVelocity[0], newvY + lastGroundVelocity[1]);
+                    return true;
                 }
                 break;
             }
@@ -109,6 +110,7 @@ class Controller {
                 System.out.println("Controller improperly initialized.");
             }
         }
+        return false;
     }
 
 

@@ -2,7 +2,6 @@ package PhysicsSim;
 import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 
 /**
@@ -39,28 +38,30 @@ public class Simulation {
     public final int ID;
     private static int num = 0;
     public static boolean showCreationInfo = false;
+    public static boolean showCreationInfoErrorMsgs = false;
     private final ArrayList<Script> scripts = new ArrayList<>();
     private static final ArrayList<Simulation> simulations = new ArrayList<>();
     final ArrayList<SAPCell> sapCells = new ArrayList<>();
     public final ArrayList<BVHTreeRoot> BVHtrees = new ArrayList<>();
-    final ArrayList<Integer> rigidbodyObjectsIDToGlobalID = new ArrayList<>();
-    final HashMap<String, Integer> rigidbodyHitboxesNamesToObjectID = new HashMap<>();
+    final HashMap<Integer, Integer> rigidbodyObjectsIDToGlobalID = new HashMap<>();
+    final HashMap<String, Hitbox> rigidbodyHitboxesNamesToObjectID = new HashMap<>();
     final ArrayList<Integer> softbodyObjectsIDToGlobalID = new ArrayList<>();
     final ArrayList<PhysicsObject> physicsObjects = new ArrayList<>();
+    final HashMap<String, PhysicsObject> namedObjects = new HashMap<>();
     final ArrayList<Hitbox> hitboxes = new ArrayList<>();
     final static Material defaultMaterial = new Material("Default", 10.0, 0.75, 0.15);
     final static HashMap<String, Material> materials = new HashMap<>();
 
     //physical constants told to Softbody and Rigidbody
     public double COEFFICIENT_OF_RESTITUTION = 0.75;
-    public double COEFFICIENT_OF_FRICTION = 0.0;
+    public double COEFFICIENT_OF_FRICTION = 0.1;
     public double GRAVITATIONAL_CONSTANT = 10.0;
     public double AIR_DENSITY = 0.001204;
     public double DRAG_COEFFICIENT = 0.95;
     public final double[] WIND_SPEED = new double[]{0.0, 0.0};
     public double CLAMP_LIMIT = 0.0;
     public double CONTACT_POINTS_MERGE_DISTANCE = 0.1;
-    public double MOUSE_SPEED_LIMIT = 1000.0;
+    public double MOUSE_SPEED_LIMIT = 10000.0;
     public double MTV_EPSILON = 0.00165;
     public double PARALLEL_EDGE_TOLERANCE = 0.001;
     public double DAMPING_COEFFICIENT_RELATOR = 0.6;
@@ -89,7 +90,7 @@ public class Simulation {
     public boolean hollowSoftbodiesSelfCollide = false;
 
     final Display display;
-    public final double keysCacheRemovalBufferTime = 0.0;
+    public final long keysCacheRemovalBufferTime = 1000;
 
     /**
      * Constructs a physics simulation using JFrame display to render single-color shapes. Objects are stored as
@@ -143,8 +144,7 @@ public class Simulation {
      *  one-sided faces, in addition to world bounds for the simulation. Following these procedures each step, the collision information for each rigidbody, in the form of a minimum translation vector (MTV) and point of contact, is
      *  trimmed to match sets of criteria, such as the merging of collision points too close to one another or the exclusion of hitboxes from physicsObject collision information.
      *  Afterwards, each rigidbody steps itself, calculating impulses to satisfy the constraint established by the coefficients of restitution and friction in a collision. Accelerations are then calculated according to universal gravity, obeying Newton's Law of Universal Gravitation despite
-     *  being in 2D with non-symmetrical bodies, and other factors like air resistance, spring joints, and repulsion between softbodies. All impulses are applied to enforce constraints, but do so assuming they are the independent scenario, meaning the simulation gradually
-     *  steps towards satisfying all constraints rather than satisfying all of them all at once, which would be to the detriment of algorithmic efficiency.
+     *  being in 2D with non-symmetrical bodies, and other factors like air resistance, spring joints, and repulsion between softbodies. All impulses are applied to enforce constraints, but do so assuming only impulses affecting each individual body exist in its constraints framing.
      *  Softbodies follow this by calculating properties like shape match and pressure forces before all objects and hitboxes update their information from the previous simulation step's state to the next. The mouse is considered once every simulation step, and may appear slower if FPS is lower.
      * @param dt the time assigned to one frame. Each internal simulation step is equal to dt / stepsPerFrame.
      * @param stepsPerFrame the number of internal simulation steps between each frame.
@@ -168,7 +168,7 @@ public class Simulation {
         long beforeTime = System.currentTimeMillis();
         dt = dt / (double) stepsPerFrame;
         for (int frameCount = 0; frameCount < stepsPerFrame; frameCount = frameCount + 1) {
-            for (Script script : scripts) script.runBefore();
+            for (Script script : scripts) script.runBefore(dt);
 
             if (mouse) display.mouseDrag(dt, stepsPerFrame);
             Rigidbody.clearCollisionInformation(ID);
@@ -191,19 +191,19 @@ public class Simulation {
             Softbody.step(ID);
             Rigidbody.updateMotion(dt, ID);
 
-            for (Script script : scripts) script.runAfter();
+            for (Script script : scripts) script.runAfter(dt);
         }
 
         if (!display.keyReleased) {
             display.firstPress = false;
         }
-        else if (display.keyReleasedFirstTime) {
+        if (display.keyReleased && display.keyReleasedFirstTime) {
             if (!display.keysCache.isEmpty()) display.keysCache.remove((Character)display.keyPressed);
             if (!display.keysCache.isEmpty()) display.keyPressed = display.keysCache.getLast();
             else display.keyPressed = '\u0000';
             display.keyReleasedFirstTime = false;
         }
-        if (keysCacheRemovalBufferTime > 0.0 && System.currentTimeMillis() - display.lastKeyTime > keysCacheRemovalBufferTime) {
+        if (!display.hasFocus && keysCacheRemovalBufferTime > 0.0 && System.currentTimeMillis() - display.lostFocusAt > keysCacheRemovalBufferTime) {
             display.keyPressed = '\u0000';
             display.keysCache.clear();
             display.keyReleasedFirstTime = false;
@@ -343,7 +343,7 @@ public class Simulation {
                     bounds = false;
                     airResistance = true;
                     createMaterial("Ground1", 10.0, 0.1, 0.5);
-                    createMaterial("Ground2", 100.0, 0.5, 0.3);
+                    createMaterial("Ground2", 100.0, 0.1, 0.3);
                     createMaterial("pillPart", 100.0, 1.0, 0.1);
                     addRigidbodyPolygon(new double[]{-15, 15, 15, -15}, new double[]{-32, -32, 32, 32}, new double[]{250.0, 220.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 100, Color.blue);
                     addRigidbodyCircle(new double[]{250.0, 188.0, 0.0, 0.0, 0.0, 90.0, 0.0, 0.0}, 16.0, 100, Color.blue);
@@ -351,6 +351,7 @@ public class Simulation {
                     getObject(0).setMaterial("pillPart");
                     getObject(1).setMaterial("pillPart");
                     getObject(2).addStandardControllerBundle();
+                    getObject(2).setMaterial("Player");
                     getObject(0).weldAttach(getObject(1), new double[]{0.0, -32.0}, new double[]{0.0, 0.0});
                     getObject(0).weldAttach(getObject(2), new double[]{0.0, 32.0}, new double[]{0.0, 0.0});
 
@@ -392,6 +393,7 @@ public class Simulation {
                         }
                     });
 
+
                     if (Simulation.showCreationInfo) {
                         listAllMaterials();
                         System.out.println();
@@ -405,6 +407,7 @@ public class Simulation {
                     isSAPvsBVH = true;
                     COEFFICIENT_OF_RESTITUTION = 1.0;
                     COEFFICIENT_OF_FRICTION = 0.0;
+                    MTV_EPSILON = 0.1;
                     for (int i = 0; i < 2000; i = i + 1) {
                         double[] motion = new double[]{Math.random() * 500.0, Math.random() * 500.0, Math.random() * 50.0 * Math.signum(Math.random() - 0.5), Math.random() * 50.0 * Math.signum(Math.random() - 0.5), 0.0, 90.0, 0.0, 0.0};
                         addRigidbodyCircle(motion, 2.5, 10.0, Color.blue);
@@ -426,31 +429,35 @@ public class Simulation {
                         switch (i) {
                             //distance
                             case 1: {
-                                base.distanceSpringAttach(top, 100.0, 2.0, parentOffset, otherOffset, false);
+                                base.distanceSpringAttach(top, 100.0, 0.001, parentOffset, otherOffset, false);
                                 break;
                             }
+                            //pin
                             case 2: {
                                 base.pinAttach(top, parentOffset, otherOffset);
                                 break;
                             }
+                            //revolute
                             case 3: {
                                 base.revoluteAttach(top, parentOffset, otherOffset, -0.25 * Math.PI, 0.25 * Math.PI);
                                 break;
                             }
+                            //weld
                             case 4: {
                                 base.weldAttach(top, parentOffset, otherOffset);
                                 break;
                             }
+                            //translational
                             case 5: {
                                 base.translationalAttach(top, parentOffset, otherOffset, new double[]{-1.0, 0.0}, new double[]{0.0, 50.0});
                                 break;
                             }
                         }
                     }
-                    for (int i = 1; i <= 4; i++) {
-                        addObstaclePolygon(new double[]{132.0 + 180.0 * (i - 1), 132.0 + 180.0 * (i - 1), 132.0 + 180.0 * (i - 1) + 5.0, 132.0 + 180.0 * (i - 1) + 5.0}, new double[]{0.0, 460.0, 460.0, 0.0},1.0, Color.green);
+                    for (int i = 1; i <= 5; i++) {
+                        addObstaclePolygon(new double[]{132.0 + 180.0 * (i - 1), 132.0 + 180.0 * (i - 1), 132.0 + 180.0 * (i - 1) + 5.0, 132.0 + 180.0 * (i - 1) + 5.0}, new double[]{-1.0, 461.0, 461.0, -1.0},1.0, Color.green);
                     }
-                    System.out.println("Demo 11: shows, in order, distance-constrain joints, pin joints, revolute joints, and weld joints.");
+                    System.out.println("Demo 11: shows, in order, distance-constraint joints, pin joints, revolute joints, weld joints, and translational joints.");
                     break;
                 }
                 default: {
@@ -500,10 +507,13 @@ public class Simulation {
      * imagined plane of creation matches the real world once the position of the center of mass is set.
      * @param mass the mass of the rigidbody. The density is always assumed uniform, but may be changed.
      * @param color the color this rigidbody will be drawn to the native JFrame display.
+     * @return PhysicsObject created
      */
-    public void addRigidbodyPolygon(double[] x, double[] y, double[] motion, double mass, Color color) {
-        physicsObjects.add(new PhysicsObject(new Rigidbody(new Polygon(x, y, MTV_EPSILON), motion, mass, color, ID)));
-        rigidbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
+    public PhysicsObject addRigidbodyPolygon(double[] x, double[] y, double[] motion, double mass, Color color) {
+        PhysicsObject physicsObject = new PhysicsObject(new Rigidbody(new Polygon(x, y, MTV_EPSILON), motion, mass, color, ID));
+        physicsObjects.add(physicsObject);
+        rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+        return physicsObject;
     }
     /**
      * Creates a rigidbody with a regular polygon geometry as a physics object. By default, it will be drawn to the native JFrame display and will not belong to a parent softbody, nor will it be part of connected or compound body.
@@ -514,8 +524,9 @@ public class Simulation {
      * imagined plane of creation matches the real world once the position of the center of mass is set.
      * @param mass the mass of the rigidbody. The density is always assumed uniform, but may be changed.
      * @param color the color this rigidbody will be drawn to the native JFrame display.
+     * @return PhysicsObject created
      */
-    public void addRigidbodyPolygon(int numSides, double radius, double phase, double[] motion, double mass, Color color) {
+    public PhysicsObject addRigidbodyPolygon(int numSides, double radius, double phase, double[] motion, double mass, Color color) {
         double[] x = new double[numSides];
         double[] y = new double[numSides];
         double angleDivision = (2.0 * Math.PI) / numSides;
@@ -523,7 +534,7 @@ public class Simulation {
             x[i] = radius * Math.cos(angleDivision * i + phase);
             y[i] = radius * Math.sin(angleDivision * i + phase);
         }
-        addRigidbodyPolygon(x, y, motion, mass, color);
+        return addRigidbodyPolygon(x, y, motion, mass, color);
     }
 
     /**
@@ -533,10 +544,13 @@ public class Simulation {
      * @param radius the radius of the circle rigidbody to be created.
      * @param mass the mass of the rigidbody. The density is always assumed uniform, but may be changed.
      * @param color the color this rigidbody will be drawn to the native JFrame display.
+     * @return PhysicsObject created
      */
-    public void addRigidbodyCircle(double[] motion, double radius, double mass, Color color) {
-        physicsObjects.add(new PhysicsObject(new Rigidbody(new Circle(radius), motion, mass, color, ID)));
-        rigidbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
+    public PhysicsObject addRigidbodyCircle(double[] motion, double radius, double mass, Color color) {
+        PhysicsObject physicsObject = new PhysicsObject(new Rigidbody(new Circle(radius), motion, mass, color, ID));
+        physicsObjects.add(physicsObject);
+        rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+        return physicsObject;
     }
 
     /**
@@ -546,15 +560,18 @@ public class Simulation {
      * @param movingMotion double[6]{vX, vY, initialAX, initialAY, angularV, initialAngularA} in reference to the rigidbody's center of mass.
      * @param mass the mass of the rigidbody. The density is always assumed uniform, but may be changed.
      * @param color the color this rigidbody will be drawn to the native JFrame display
+     * @return PhysicsObject created
      */
-    public void addObstaclePolygon(double[] x, double[] y, double[] movingMotion, double mass, Color color) {
+    public PhysicsObject addObstaclePolygon(double[] x, double[] y, double[] movingMotion, double mass, Color color) {
         double[] motion = new double[]{0.0, 0.0, movingMotion[0], movingMotion[1], movingMotion[2], movingMotion[3], movingMotion[4], movingMotion[5]};
         Rigidbody obstacle = new Rigidbody(new Polygon(x, y, MTV_EPSILON), motion, mass, color, ID);
         obstacle.setPosX(x[0] - ((Polygon) obstacle.geometry).getXPoints(0));
         obstacle.setPosY(y[0] - ((Polygon) obstacle.geometry).getYPoints(0));
         obstacle.setIsMovable(false);
-        physicsObjects.add(new PhysicsObject(obstacle));
-        rigidbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
+        PhysicsObject physicsObject = new PhysicsObject(obstacle);
+        physicsObjects.add(physicsObject);
+        rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+        return physicsObject;
     }
     /**
      * Creates an immovable obstacle rigidbody with a polygon geometry as a physics object. By default, it will be drawn to the native JFrame display and will not belong to a parent softbody, nor will it be part of connected or compound body.
@@ -562,9 +579,10 @@ public class Simulation {
      * @param y the y-coordinates of this polygon in world space.
      * @param mass the mass of the rigidbody. The density is always assumed uniform, but may be changed.
      * @param color the color this rigidbody will be drawn to the native JFrame display
+     * @return PhysicsObject created
      */
-    public void addObstaclePolygon(double[] x, double[] y, double mass, Color color) {
-        addObstaclePolygon(x, y, new double[]{0.0,0.0,0.0,0.0,0.0,0.0}, mass, color);
+    public PhysicsObject addObstaclePolygon(double[] x, double[] y, double mass, Color color) {
+        return addObstaclePolygon(x, y, new double[]{0.0,0.0,0.0,0.0,0.0,0.0}, mass, color);
     }
     /**
      * Creates an immovable obstacle rigidbody with a circle geometry as a physics object. By default, it will be drawn to the native JFrame display and will not belong to a parent softbody, nor will it be part of connected or compound body.
@@ -573,13 +591,16 @@ public class Simulation {
      * @param movingMotion double[6]{vX, vY, initialAX, initialAY, angularV, initialAngularA} in reference to the rigidbody's center of mass.
      * @param mass the mass of the rigidbody. The density is always assumed uniform, but may be changed.
      * @param color the color this rigidbody will be drawn to the native JFrame display
+     * @return PhysicsObject created
      */
-    public void addObstacleCircle(double[] pos, double radius, double[] movingMotion, double mass, Color color) {
+    public PhysicsObject addObstacleCircle(double[] pos, double radius, double[] movingMotion, double mass, Color color) {
         double[] motion = new double[]{pos[0], pos[1], movingMotion[0], movingMotion[1], movingMotion[2], movingMotion[3], movingMotion[4], movingMotion[5]};
         Rigidbody obstacle = new Rigidbody(new Circle(radius), motion, mass, color, ID);
         obstacle.setIsMovable(false);
-        physicsObjects.add(new PhysicsObject(obstacle));
-        rigidbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
+        PhysicsObject physicsObject = new PhysicsObject(obstacle);
+        physicsObjects.add(physicsObject);
+        rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+        return physicsObject;
     }
     /**
      * Creates an immovable obstacle rigidbody with a circle geometry as a physics object. By default, it will be drawn to the native JFrame display and will not belong to a parent softbody, nor will it be part of connected or compound body.
@@ -587,9 +608,10 @@ public class Simulation {
      * @param radius the radius of this obstacle circle.
      * @param mass the mass of the rigidbody. The density is always assumed uniform, but may be changed.
      * @param color the color this rigidbody will be drawn to the native JFrame display
+     * @return PhysicsObject created
      */
-    public void addObstacleCircle(double[] pos, double radius, double mass, Color color) {
-       addObstacleCircle(pos, radius, new double[]{0.0, 0.0, 0.0, 0.0}, mass, color);
+    public PhysicsObject addObstacleCircle(double[] pos, double radius, double mass, Color color) {
+       return addObstacleCircle(pos, radius, new double[]{0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, mass, color);
     }
     /**
      * Creates a hitbox with a polygon geometry. By default, it will not be drawn to the native JFrame display.
@@ -598,8 +620,9 @@ public class Simulation {
      * @param movingMotion double[6]{vX, vY, initialAX, initialAY, angularV, initialAngularA} in reference to the rigidbody's center of mass.
      * @param color the color this rigidbody will be drawn to the native JFrame display
      * @param name String assigned to this hitbox by which it can be referred to singly. If another hitbox occupies this name exactly, references by name will direct to this hitbox instead.
+     * @return Hitbox created
      */
-    public void addHitboxPolygon(double[] x, double[] y, double[] movingMotion, Color color, String name) {
+    public Hitbox addHitboxPolygon(double[] x, double[] y, double[] movingMotion, Color color, String name) {
         double[] motion = new double[]{0.0, 0.0, movingMotion[0], movingMotion[1], movingMotion[2], movingMotion[3], movingMotion[4], movingMotion[5]};
         Rigidbody obstacle = new Rigidbody(new Polygon(x, y, MTV_EPSILON), motion, 1.0, color, ID);
         obstacle.setPosX(x[0] - ((Polygon) obstacle.geometry).getXPoints(0));
@@ -607,9 +630,11 @@ public class Simulation {
         obstacle.setIsMovable(false);
         obstacle.isHitbox = true;
         obstacle.draw = false;
-        hitboxes.add(new Hitbox(obstacle, name));
-        rigidbodyObjectsIDToGlobalID.add(hitboxes.size() - 1);
-        rigidbodyHitboxesNamesToObjectID.put(name, hitboxes.size() - 1);
+        Hitbox hitbox = new Hitbox(obstacle, name);
+        hitboxes.add(hitbox);
+        rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+        rigidbodyHitboxesNamesToObjectID.put(name, hitbox);
+        return hitbox;
     }
     /**
      * Creates a hitbox with a polygon geometry. By default, it will not be drawn to the native JFrame display.
@@ -617,9 +642,10 @@ public class Simulation {
      * @param y the y-coordinates of this polygon in world space.
      * @param color the color this rigidbody will be drawn to the native JFrame display
      * @param name String assigned to this hitbox by which it can be referred to singly. If another hitbox occupies this name exactly, references by name will direct to this hitbox instead.
+     * @return Hitbox created
      */
-    public void addHitboxPolygon(double[] x, double[] y, Color color, String name) {
-        addHitboxPolygon(x, y, new double[]{0.0,0.0,0.0,0.0,0.0,0.0}, color, name);
+    public Hitbox addHitboxPolygon(double[] x, double[] y, Color color, String name) {
+        return addHitboxPolygon(x, y, new double[]{0.0,0.0,0.0,0.0,0.0,0.0}, color, name);
     }
     /**
      * Creates a hitbox with a circle geometry. By default, it will not be drawn to the native JFrame display.
@@ -628,16 +654,19 @@ public class Simulation {
      * @param movingMotion double[6]{vX, vY, initialAX, initialAY, angularV, initialAngularA} in reference to the rigidbody's center of mass.
      * @param color the color this rigidbody will be drawn to the native JFrame display
      * @param name String assigned to this hitbox by which it can be referred to singly. If another hitbox occupies this name exactly, references by name will direct to this hitbox instead.
+     * @return Hitbox
      */
-    public void addHitboxCircle(double[] pos, double radius, double[] movingMotion, Color color, String name) {
+    public Hitbox addHitboxCircle(double[] pos, double radius, double[] movingMotion, Color color, String name) {
         double[] motion = new double[]{pos[0], pos[1], movingMotion[0], movingMotion[1], movingMotion[2], movingMotion[3], movingMotion[4], movingMotion[5]};
         Rigidbody obstacle = new Rigidbody(new Circle(radius), motion, 1.0, color, ID);
         obstacle.setIsMovable(false);
         obstacle.isHitbox = true;
         obstacle.draw = false;
-        hitboxes.add(new Hitbox(obstacle, name));
-        rigidbodyObjectsIDToGlobalID.add(hitboxes.size() - 1);
-        rigidbodyHitboxesNamesToObjectID.put(name, hitboxes.size() - 1);
+        Hitbox hitbox = new Hitbox(obstacle, name);
+        hitboxes.add(hitbox);
+        rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+        rigidbodyHitboxesNamesToObjectID.put(name, hitbox);
+        return hitbox;
     }
     /**
      * Creates a hitbox with a circle geometry. By default, it will not be drawn to the native JFrame display.
@@ -645,9 +674,10 @@ public class Simulation {
      * @param radius the radius of this hitbox circle.
      * @param color the color this rigidbody will be drawn to the native JFrame display
      * @param name String assigned to this hitbox by which it can be referred to singly. If another hitbox occupies this name exactly, references by name will direct to this hitbox instead.
+     * @return Hitbox created
      */
-    public void addHitboxCircle(double[] pos, double radius, Color color, String name) {
-        addHitboxCircle(pos, radius, new double[]{0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, color, name);
+    public Hitbox addHitboxCircle(double[] pos, double radius, Color color, String name) {
+        return addHitboxCircle(pos, radius, new double[]{0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, color, name);
     }
 
     /**
@@ -658,8 +688,9 @@ public class Simulation {
      * @param movingMotion double[6]{vX, vY, initialAX, initialAY, angularV, initialAngularA} in reference to the rigidbody's center of mass.
      * @param width of the face rigidbody. A width too small may result in collision errors for larger time steps.
      * @param color java.awt Color instance of this object.
+     * @return PhysicsObject created
      */
-    public void addFace(double[] pos1, double[] pos2, double[] movingMotion, double width, double mass, Color color) {
+    public PhysicsObject addFace(double[] pos1, double[] pos2, double[] movingMotion, double width, double mass, Color color) {
         double[] motion = new double[]{0.0, 0.0, movingMotion[0], movingMotion[1], movingMotion[2], movingMotion[3], movingMotion[4], movingMotion[5]};
         double nX = -(pos2[1] - pos1[1]);
         double nY = pos2[0] - pos1[0];
@@ -674,8 +705,10 @@ public class Simulation {
         face.setPosY(y[0] - polygon.getYPoints(0));
         polygon.setFace(0);
         face.setIsMovable(false);
-        physicsObjects.add(new PhysicsObject(face));
-        rigidbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
+        PhysicsObject physicsObject = new PhysicsObject(face);
+        physicsObjects.add(physicsObject);
+        rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+        return physicsObject;
     }
     /**
      * Creates a one-sided rigidbody obstacle physics object. Objects may pass through from one-end, but not the other. The normal allowed is defined as the
@@ -684,9 +717,10 @@ public class Simulation {
      * @param pos2 double[2]{posX, posY}
      * @param movingMotion double[6]{vX, vY, initialAX, initialAY, angularV, initialAngularA} in reference to the rigidbody's center of mass.
      * @param color java.awt Color instance of this object.
+     * @return PhysicsObject
      */
-    public void addFace(double[] pos1, double[] pos2, double[] movingMotion, double mass, Color color) {
-        addFace(pos1, pos2, movingMotion,1.0, mass, color);
+    public PhysicsObject addFace(double[] pos1, double[] pos2, double[] movingMotion, double mass, Color color) {
+        return addFace(pos1, pos2, movingMotion,1.0, mass, color);
     }
     /**
      * Creates a one-sided rigidbody obstacle physics object. Objects may pass through from one-end, but not the other. The normal allowed is defined as the
@@ -694,9 +728,10 @@ public class Simulation {
      * @param pos1 double[2]{posX, posY}
      * @param pos2 double[2]{posX, posY}
      * @param color java.awt Color instance of this object.
+     * @return PhysicsObject created
      */
-    public void addFace(double[] pos1, double[] pos2, double mass, Color color) {
-        addFace(pos1, pos2, new double[]{0.0,0.0,0.0,0.0,0.0,0.0},1.0, mass, color);
+    public PhysicsObject addFace(double[] pos1, double[] pos2, double mass, Color color) {
+        return addFace(pos1, pos2, new double[]{0.0,0.0,0.0,0.0,0.0,0.0},1.0, mass, color);
     }
 
     /**
@@ -713,11 +748,14 @@ public class Simulation {
      * @param initialPressure the initial given pressure of the shape at construction. Pressure is evaluated every step as proportional by the initial pressure to the relative change in area compared to the softbody's area at construction.
      *                        For any boundary edge, the force applied is calculated as pressure * length.
      * @param pointRadius the radius of all member bodies.
+     * @return PhysicsObject created
      */
-    public void addPressureSoftbody(double[] definingX, double[] definingY, double[] movingMotion, double mass, Color color, double stiffness, double targetDensity, double initialPressure, double pointRadius) {
+    public PhysicsObject addPressureSoftbody(double[] definingX, double[] definingY, double[] movingMotion, double mass, Color color, double stiffness, double targetDensity, double initialPressure, double pointRadius) {
         movingMotion = new double[]{movingMotion[0], movingMotion[1], movingMotion[2], movingMotion[3], 0.0, 0.0};
-        physicsObjects.add(new PhysicsObject(new Softbody(SoftbodyType.PressureSpring, definingX, definingY, movingMotion, pointRadius, targetDensity, stiffness, initialPressure, mass, color, -1, -1, ID)));
+        PhysicsObject physicsObject = new PhysicsObject(new Softbody(SoftbodyType.PressureSpring, definingX, definingY, movingMotion, pointRadius, targetDensity, stiffness, initialPressure, mass, color, -1, -1, ID));
+        physicsObjects.add(physicsObject);
         softbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
+        return physicsObject;
     }
 
     /**
@@ -732,11 +770,14 @@ public class Simulation {
      *                  corresponding simulation's DAMPING_COEFFICIENT_RELATOR * sqrt(massPer * Hooke's constant).
      * @param targetDensity the target density lattice construction aims to achieve in members per 2500 unit^2.
      * @param pointRadius the radius of all member bodies.
+     * @return PhysicsObject created
      */
-    public void addSpringSoftbody(double[] definingX, double[] definingY, double[] movingMotion, double mass, Color color, double stiffness, double targetDensity, double pointRadius) {
+    public PhysicsObject addSpringSoftbody(double[] definingX, double[] definingY, double[] movingMotion, double mass, Color color, double stiffness, double targetDensity, double pointRadius) {
         movingMotion = new double[]{movingMotion[0], movingMotion[1], movingMotion[2], movingMotion[3], 0.0, 0.0};
-        physicsObjects.add(new PhysicsObject(new Softbody(SoftbodyType.SpringMass, definingX, definingY, movingMotion, pointRadius, targetDensity, stiffness, 0.0, mass, color, 1.5, 0.0, ID)));
+        PhysicsObject physicsObject = new PhysicsObject(new Softbody(SoftbodyType.SpringMass, definingX, definingY, movingMotion, pointRadius, targetDensity, stiffness, 0.0, mass, color, 1.5, 0.0, ID));
+        physicsObjects.add(physicsObject);
         softbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
+        return physicsObject;
     }
 
     /**
@@ -759,16 +800,19 @@ public class Simulation {
      * @param pointRadius the radius of all member bodies.
      * @param shape_match_strength multiplied by the mass of a member body, this equals Hooke's Constant in the spring relation between the current position
      *                             and the desired position. The corresponding damping coefficient is equal to its Simulation's DAMPING_COEFFICIENT_RELATOR * sqrt(match_strength * massPer).
+     * @return PhysicsObject created
      */
-    public void addShapedSoftbody(boolean isSolid, double[] definingX, double[] definingY, double[] movingMotion, double mass, Color color, double stiffness, double targetDensity, double pointRadius, double shape_match_strength) {
+    public PhysicsObject addShapedSoftbody(boolean isSolid, double[] definingX, double[] definingY, double[] movingMotion, double mass, Color color, double stiffness, double targetDensity, double pointRadius, double shape_match_strength) {
         movingMotion = new double[]{movingMotion[0], movingMotion[1], movingMotion[2], movingMotion[3], 0.0, 0.0};
         SoftbodyType type = SoftbodyType.ShapeMatchHollow;
         if (isSolid) type = SoftbodyType.ShapeMatchSolid;
-        physicsObjects.add(new PhysicsObject(new Softbody(type, definingX, definingY, movingMotion, pointRadius, targetDensity, stiffness, 0.0, mass, color, 2.0, 0.1, ID)));
+        PhysicsObject physicsObject = new PhysicsObject(new Softbody(type, definingX, definingY, movingMotion, pointRadius, targetDensity, stiffness, 0.0, mass, color, 2.0, 0.1, ID));
+        physicsObjects.add(physicsObject);
         softbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
         double massPer = (mass / Softbody.get(Softbody.num - 1).size());
         Softbody.get(Softbody.num - 1).SHAPE_MATCH_STRENGTH = shape_match_strength;
         Softbody.get(Softbody.num - 1).SHAPE_MATCH_DAMPING = SHAPE_DAMPING_COEFFICIENT_RELATOR * Math.sqrt(massPer * shape_match_strength);
+        return physicsObject;
     }
 
     /**
@@ -785,8 +829,9 @@ public class Simulation {
      * @param pointRadius the radius of all member bodies.
      * @param lockedInPlace boolean[n] where true means to make the member immovable and false means to keep it movable. If this parameter is not sufficiently long, it is assumed
      *                      that the rest of its contents are false.
+     * @return ArrayList&ltPhysicsObject&gt of all created physicsObjects that are part of this rope.
      */
-    public void addRope(double[] x, double[] y, double[] movingMotion, double massPerPoint, Color color, double stiffness, double allowance_multiplier, double pointRadius, boolean[] lockedInPlace) {
+    public ArrayList<PhysicsObject> addRope(double[] x, double[] y, double[] movingMotion, double massPerPoint, Color color, double stiffness, double allowance_multiplier, double pointRadius, boolean[] lockedInPlace) {
         int startIndex = Rigidbody.num;
         int beforeSize = physicsObjects.size();
         double HOOKE_CONSTANT = stiffness * massPerPoint;
@@ -794,12 +839,15 @@ public class Simulation {
         double minDist = 1.0 - allowance_multiplier;
         double maxDist = 1.0 + allowance_multiplier;
         ArrayList<Rigidbody> ropePoints = new ArrayList<>();
+        ArrayList<PhysicsObject> returnArray = new ArrayList<>();
         for (int i = 0; i < x.length; i = i + 1) {
             Rigidbody ropePoint = new Rigidbody(new Circle(pointRadius), new double[]{x[i], y[i], movingMotion[0], movingMotion[1], movingMotion[2], movingMotion[3], 0.0, 0.0},
                     massPerPoint, color, ID);
             ropePoint.lockRotation(true);
-            physicsObjects.add(new PhysicsObject(ropePoint));
-            rigidbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
+            PhysicsObject physicsObject = new PhysicsObject(ropePoint);
+            physicsObjects.add(physicsObject);
+            rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+            returnArray.add(physicsObject);
             ropePoints.add(ropePoint);
             if (i != 0) {
                 ropePoint.springAttach(Rigidbody.get(startIndex + i - 1), 1.0, 1.0);
@@ -816,6 +864,7 @@ public class Simulation {
             System.out.println("Mass per node: " + massPerPoint + ", Stiffness: " + stiffness + ", Allowance: " + allowance_multiplier + ", Node size: " + pointRadius + ", Rope Node Count: " + x.length);
             System.out.println();
         }
+        return returnArray;
     }
 
     /**
@@ -855,6 +904,28 @@ public class Simulation {
         }
     }
     /**
+     * Get the physicsObject that was assigned this name.
+     * @param name the name of the physicsObject in question.
+     * @return PhysicsObject
+     */
+    public PhysicsObject getObject(String name) {
+        return namedObjects.get(name);
+    }
+
+    /**
+     * Get all physicsObjects with material with the given name.
+     * @param name
+     * @return ArrayList&ltPhysicsObject&gt
+     */
+    public ArrayList<PhysicsObject> getObjectWithMaterialName(String name) {
+        Material material = materials.get(name);
+        ArrayList<PhysicsObject> objects = new ArrayList<>();
+        for (PhysicsObject physicsObject : physicsObjects) {
+            if (physicsObject.material == material) objects.add(physicsObject);
+        }
+        return objects;
+    }
+    /**
      * Get a Hitbox with the given hitbox ID.
      * @param ID the ID of the hitbox in question, which does not always match its localID. IDs increment in order of creation.
      * @return Hitbox
@@ -884,9 +955,7 @@ public class Simulation {
      * @return Hitbox
      */
     public Hitbox getHitbox(String name) {
-        Integer id = rigidbodyHitboxesNamesToObjectID.get(name);
-        if (id == null) return null;
-        else return hitboxes.get(id);
+        return rigidbodyHitboxesNamesToObjectID.get(name);
     }
 
     /**
@@ -897,13 +966,15 @@ public class Simulation {
      * @param density mass per 2500 unit^2 area.
      * @param restitution the coefficient of restitutions for collision resolution.
      * @param dynamic_friction the coefficient of friction for collision resolution. Bodies switch to static friction if the dynamic friction exceeds constraints.
+     * @return boolean true if the material was created successfully, false if that name already belonged to a material.
      */
-    public static void createMaterial(String name, double density, double restitution, double dynamic_friction) {
+    public static boolean createMaterial(String name, double density, double restitution, double dynamic_friction) {
         if (!materials.containsValue(defaultMaterial)) materials.put("Default", defaultMaterial);
         if (!materials.containsKey(name)) {
             materials.put(name, new Material(name, density, restitution, dynamic_friction));
+            return true;
         }
-
+        return false;
     }
 
     /**
@@ -1051,6 +1122,14 @@ public class Simulation {
      *
      * @return the count of awake objects and hitboxes in this simulation.
      */
+    public int awakeSize() {
+        return awakeObjectSize() + awakeHitboxSize();
+    }
+
+    /**
+     *
+     * @return the count of all objects and hitboxes in this simulation, awake or asleep.
+     */
     public int size() {
         return objectSize() + hitboxSize();
     }
@@ -1059,7 +1138,7 @@ public class Simulation {
      *
      * @return the count of awake physicsObjects.
      */
-    public int objectSize() {
+    public int awakeObjectSize() {
         int count = 0;
         for (PhysicsObject object : physicsObjects) {
             switch (object.getType()) {
@@ -1078,14 +1157,30 @@ public class Simulation {
 
     /**
      *
+     * @return the count of all physicsObjects
+     */
+    public int objectSize() {
+        return physicsObjects.size();
+    }
+
+    /**
+     *
      * @return the count of awake hitboxes
      */
-    public int hitboxSize() {
+    public int awakeHitboxSize() {
         int count = 0;
         for (Hitbox object : hitboxes) {
             if (object.rigidbody.simID >= 0) count += 1;
         }
         return count;
+    }
+
+    /**
+     *
+     * @return the count of all hitboxes
+     */
+    public int hitboxSize() {
+        return hitboxes.size();
     }
 
     /**

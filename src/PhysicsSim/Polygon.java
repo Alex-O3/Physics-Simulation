@@ -291,12 +291,15 @@ class Polygon extends GeometricType {
             boolean intersecting = false;
             for (ConvexPolygon myConvex : convexDecomposition) {
                 for (ConvexPolygon otherConvex : ((Polygon) otherGeometry).convexDecomposition) {
+                    if (getParentRigidbodyID() == 4) {
+                        double a = 1;
+                    }
                     Triplet results = myConvex.checkCollisions(otherConvex);
                     if (results.getFirstBoolean()) {
                         intersecting = true;
-                        myObject.contactPoints.add(results.getThirdDoubleArrayReference());
-                        myObject.MTVs.add(results.getSecondDoubleArrayReference());
-                        myObject.collidingIDs.add(otherObject.ID);
+                        myObject.contactPoints.add(results.getThirdDoubleArray());
+                        myObject.MTVs.add(results.getSecondDoubleArray());
+                        myObject.collidingIDs.add(new int[]{otherObject.ID});
                     }
                 }
             }
@@ -308,9 +311,9 @@ class Polygon extends GeometricType {
                 Triplet results = myConvex.checkCollisions(other);
                 if (results.getFirstBoolean()) {
                     intersecting = true;
-                    myObject.contactPoints.add(results.getThirdDoubleArrayReference());
-                    myObject.MTVs.add(results.getSecondDoubleArrayReference());
-                    myObject.collidingIDs.add(otherObject.ID);
+                    myObject.contactPoints.add(results.getThirdDoubleArray());
+                    myObject.MTVs.add(results.getSecondDoubleArray());
+                    myObject.collidingIDs.add(new int[]{otherObject.ID});
                 }
             }
             return(intersecting);
@@ -341,15 +344,19 @@ class Polygon extends GeometricType {
         Rigidbody myObject = Rigidbody.get(getParentRigidbodyID());
         for (ConvexPolygon myConvex : convexDecomposition) {
             Triplet results = myConvex.checkCollisions(posX, posY, nX, nY,
-                    solidJoint.parent.getCompoundMass() + solidJoint.connection.getCompoundMass(), !solidJoint.parent.isMovable() && !solidJoint.connection.isMovable());
+                    solidJoint.parent.getCompoundMass() + solidJoint.connection.getCompoundMass(), !solidJoint.parent.isMovable() && !solidJoint.connection.isMovable(), solidJoint);
             if (results.getFirstBoolean()) {
                 intersecting = true;
-                myObject.contactPoints.add(results.getThirdDoubleArrayReference());
-                myObject.contactPoints.add(new Double[]{Double.NaN, 0.0});
-                myObject.MTVs.add(results.getSecondDoubleArrayReference());
-                myObject.MTVs.add(results.getSecondDoubleArrayReference());
-                myObject.collidingIDs.add(-solidJoint.parent.ID - 2);
-                myObject.collidingIDs.add(-solidJoint.connection.ID - 2);
+                myObject.contactPoints.add(results.getThirdDoubleArray());
+                myObject.MTVs.add(results.getSecondDoubleArray());
+                int solidJointAttachmentIDParent = -1;
+                for (int i = 0; i < solidJoint.parent.attachments.size(); i++) {
+                    if (solidJoint.parent.attachments.get(i) == solidJoint) {
+                        solidJointAttachmentIDParent = i;
+                        break;
+                    }
+                }
+                myObject.collidingIDs.add(new int[]{-solidJoint.parent.ID - 2, -solidJoint.connection.ID - 2, solidJointAttachmentIDParent});
             }
         }
         return(false);
@@ -372,43 +379,43 @@ class Polygon extends GeometricType {
             double y = yPoints.get(i) + posY;
             int nextIndex = mod(i + 1, xPoints.size());
             if (y >= worldBottomBound) {
-                myObject.MTVs.add(new Double[]{0.0, worldBottomBound - y - sim.MTV_EPSILON});
-                myObject.collidingIDs.add(-1);
+                myObject.MTVs.add(new double[]{0.0, worldBottomBound - y - sim.MTV_EPSILON});
+                myObject.collidingIDs.add(new int[]{-1});
                 if (yPoints.get(nextIndex) + posY >= worldBottomBound) {
-                    myObject.contactPoints.add(new Double[]{0.5 * (x + xPoints.get(nextIndex) + posX), 0.5 * (y + yPoints.get(nextIndex) + posY)});
+                    myObject.contactPoints.add(new double[]{0.5 * (x + xPoints.get(nextIndex) + posX), 0.5 * (y + yPoints.get(nextIndex) + posY)});
                     i++;
                 }
-                else myObject.contactPoints.add(new Double[]{x, y});
+                else myObject.contactPoints.add(new double[]{x, y});
                 intersecting = true;
             }
             if (y <= worldTopBound) {
-                myObject.MTVs.add(new Double[]{0.0, worldTopBound - y + sim.MTV_EPSILON});
-                myObject.collidingIDs.add(-1);
+                myObject.MTVs.add(new double[]{0.0, worldTopBound - y + sim.MTV_EPSILON});
+                myObject.collidingIDs.add(new int[]{-1});
                 if (yPoints.get(nextIndex) + posY <= worldBottomBound) {
-                    myObject.contactPoints.add(new Double[]{0.5 * (x + xPoints.get(nextIndex) + posX), 0.5 * (y + yPoints.get(nextIndex) + posY)});
+                    myObject.contactPoints.add(new double[]{0.5 * (x + xPoints.get(nextIndex) + posX), 0.5 * (y + yPoints.get(nextIndex) + posY)});
                     i++;
                 }
-                else myObject.contactPoints.add(new Double[]{x, y});
+                else myObject.contactPoints.add(new double[]{x, y});
                 intersecting = true;
             }
             if (x <= worldLeftBound) {
-                myObject.MTVs.add(new Double[]{worldLeftBound - x + sim.MTV_EPSILON, 0.0});
-                myObject.collidingIDs.add(-1);
+                myObject.MTVs.add(new double[]{worldLeftBound - x + sim.MTV_EPSILON, 0.0});
+                myObject.collidingIDs.add(new int[]{-1});
                 if (xPoints.get(nextIndex) + posY <= worldLeftBound) {
-                    myObject.contactPoints.add(new Double[]{0.5 * (x + xPoints.get(nextIndex) + posX), 0.5 * (y + yPoints.get(nextIndex) + posY)});
+                    myObject.contactPoints.add(new double[]{0.5 * (x + xPoints.get(nextIndex) + posX), 0.5 * (y + yPoints.get(nextIndex) + posY)});
                     i++;
                 }
-                else myObject.contactPoints.add(new Double[]{x, y});
+                else myObject.contactPoints.add(new double[]{x, y});
                 intersecting = true;
             }
             if (x >= worldRightBound) {
-                myObject.MTVs.add(new Double[]{worldRightBound - x - sim.MTV_EPSILON, 0.0});
-                myObject.collidingIDs.add(-1);
+                myObject.MTVs.add(new double[]{worldRightBound - x - sim.MTV_EPSILON, 0.0});
+                myObject.collidingIDs.add(new int[]{-1});
                 if (xPoints.get(nextIndex) + posX >= worldRightBound) {
-                    myObject.contactPoints.add(new Double[]{0.5 * (x + xPoints.get(nextIndex) + posX), 0.5 * (y + yPoints.get(nextIndex) + posY)});
+                    myObject.contactPoints.add(new double[]{0.5 * (x + xPoints.get(nextIndex) + posX), 0.5 * (y + yPoints.get(nextIndex) + posY)});
                     i++;
                 }
-                else myObject.contactPoints.add(new Double[]{x, y});
+                else myObject.contactPoints.add(new double[]{x, y});
                 intersecting = true;
             }
         }
@@ -470,7 +477,8 @@ class Polygon extends GeometricType {
                 maxX = temp;
                 maxXindex = tempIndex;
             }
-            if (testPoint[0] >= minX && testPoint[0] <= maxX && ((yPoints.get(maxXindex) - yPoints.get(minXindex)) / (maxX - minX)) * (testPoint[0] - maxX) + yPoints.get(maxXindex) >= testPoint[1]) {
+            if (testPoint[0] >= minX && testPoint[0] <= maxX && testPoint[1] <= Math.min(yPoints.get(minXindex), yPoints.get(maxXindex))) raycastCount++;
+            else if (testPoint[0] >= minX && testPoint[0] <= maxX && ((yPoints.get(maxXindex) - yPoints.get(minXindex)) / (maxX - minX)) * (testPoint[0] - maxX) + yPoints.get(maxXindex) >= testPoint[1]) {
                 raycastCount = raycastCount + 1;
             }
         }

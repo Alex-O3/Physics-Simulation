@@ -210,9 +210,9 @@ public class Hitbox {
     public ArrayList<PhysicsObject> getObjectCollisions() throws Exception {
         ArrayList<PhysicsObject> returnArray = new ArrayList<>();
         for (int i = 0; i < rigidbody.collidingIDs.size(); i = i + 1) {
-            if (rigidbody.collidingIDs.get(i) >= 0) {
-                if (Rigidbody.get(rigidbody.collidingIDs.get(i)).isHitbox) continue;
-                returnArray.add(Simulation.get(whatAmI.getThirdInt()).getObject("Rigidbody", rigidbody.collidingIDs.get(i)));
+            if (rigidbody.collidingIDs.get(i)[0] >= 0) {
+                if (Rigidbody.get(rigidbody.collidingIDs.get(i)[0]).isHitbox) continue;
+                returnArray.add(Simulation.get(whatAmI.getThirdInt()).getObject("Rigidbody", rigidbody.collidingIDs.get(i)[0]));
             }
         }
         return(returnArray);
@@ -226,9 +226,9 @@ public class Hitbox {
         ArrayList<Hitbox> returnArray = new ArrayList<>();
         if (whatAmI.getFirstString().equals("Rigidbody")) {
             for (int i = 0; i < rigidbody.collidingIDs.size(); i = i + 1) {
-                if (rigidbody.collidingIDs.get(i) >= 0) {
-                    if (!Rigidbody.get(rigidbody.collidingIDs.get(i)).isHitbox) continue;
-                    Hitbox entry = Simulation.get(whatAmI.getThirdInt()).getHitbox("Rigidbody", rigidbody.collidingIDs.get(i));
+                if (rigidbody.collidingIDs.get(i)[0] >= 0) {
+                    if (!Rigidbody.get(rigidbody.collidingIDs.get(i)[0]).isHitbox) continue;
+                    Hitbox entry = Simulation.get(whatAmI.getThirdInt()).getHitbox("Rigidbody", rigidbody.collidingIDs.get(i)[0]);
                     if (returnArray.contains(entry)) continue;
                     returnArray.add(entry);
                 }

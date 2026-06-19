@@ -7,26 +7,41 @@ class CompoundBody {
     double inertia;
     double mass;
     double[] cM;
+    private final double[] memberOffsets;
     boolean movable = true;
-    private boolean lockedRotation = false;
+    boolean lockedRotation = false;
     private double[] controllerJerk = new double[2];
+    double initialExternalAngularA = 0.0;
 
     public CompoundBody(Rigidbody firstMember) {
-        expand(firstMember);
+        ArrayList<double[]> memberOffsetConstruction = new ArrayList<>();
+        memberOffsetConstruction.add(new double[]{firstMember.getPosX(), firstMember.getPosY()});
+        expand(firstMember, memberOffsetConstruction, 0);
+        for (int i = 0; i < members.size(); i++) {
+            members.get(i).newposX = memberOffsetConstruction.get(i)[0];
+            members.get(i).setPosX(memberOffsetConstruction.get(i)[0]);
+            members.get(i).newposY = memberOffsetConstruction.get(i)[1];
+            members.get(i).setPosY(memberOffsetConstruction.get(i)[1]);
+        }
+        memberOffsets = new double[members.size() * 2];
+        calculateProperties();
+        for (int i = 0; i < memberOffsetConstruction.size(); i++) {
+            memberOffsets[2 * i] = memberOffsetConstruction.get(i)[0] - cM[0];
+            memberOffsets[2 * i + 1] = memberOffsetConstruction.get(i)[1] - cM[1];
+        }
     }
-    private void expand(Rigidbody nextMember) {
-        if (!members.contains(nextMember)) {
-            members.add(nextMember);
-            nextMember.compoundBody = this;
-            for (Joint weld : nextMember.attachments) {
-                if (weld.type == JointType.Weld && !members.contains(weld.connection)) {
-                    expand(weld.connection);
-                }
+    private void expand(Rigidbody nextMember, ArrayList<double[]> memberOffsetConstruction, int parentMemberID) {
+        members.add(nextMember);
+        nextMember.compoundBody = this;
+        for (Joint weld : nextMember.attachments) {
+            if (weld.type == JointType.Weld && !members.contains(weld.connection)) {
+                memberOffsetConstruction.add(new double[]{memberOffsetConstruction.get(parentMemberID)[0] + weld.offsetFromCMParent[0] - weld.offsetFromCMOther[0], memberOffsetConstruction.get(parentMemberID)[1] + weld.offsetFromCMParent[1] - weld.offsetFromCMOther[1]});
+                expand(weld.connection, memberOffsetConstruction, members.size());
             }
         }
     }
 
-    private void calculateProperties() {
+    public void calculateProperties() {
         cM = new double[2];
         inertia = 0.0;
         mass = 0.0;
@@ -34,24 +49,22 @@ class CompoundBody {
         lockedRotation = false;
         for (Rigidbody member : members) {
             mass += member.getMass();
-            cM[0] += member.getPosX() * member.getMass();
-            cM[1] += member.getPosY() * member.getMass();
-            if (!member.isMovable()) movable = false;
-            if (member.lockedRotation()) lockedRotation = true;
+            cM[0] += member.newposX * member.getMass();
+            cM[1] += member.newposY * member.getMass();
+            if (!member.isMovable) movable = false;
+            if (member.lockedRotation) lockedRotation = true;
         }
         cM[0] /= mass;
         cM[1] /= mass;
 
         inertia = 0.0;
         for (Rigidbody member : members) {
-            double squaredDistance = ((cM[0] - member.getPosX()) * (cM[0] - member.getPosX()) + (cM[1] - member.getPosY()) * (cM[1] - member.getPosY()));
+            double squaredDistance = ((cM[0] - member.newposX) * (cM[0] - member.newposX) + (cM[1] - member.newposY) * (cM[1] - member.newposY));
             inertia += member.getMass() * squaredDistance + member.getInertia();
         }
     }
 
     public void equalizeProperties() {
-        calculateProperties();
-
         double totalAngularVelocity = 0.0;
         double totalAngularAcceleration = 0.0;
         double[] totalLinearVelocity = new double[2];
@@ -82,12 +95,13 @@ class CompoundBody {
             totalAngularVelocity = 0.0;
             totalAngularAcceleration = 0.0;
         }
+        totalAngularAcceleration += initialExternalAngularA;
 
         for (Rigidbody member : members) {
             member.newangularV = totalAngularVelocity;
             member.newangularA = totalAngularAcceleration;
-            double[] v = new double[]{totalAngularVelocity * -(member.getPosY() - cM[1]), totalAngularVelocity * (member.getPosX() - cM[0])};
-            double[] a = new double[]{totalAngularAcceleration * -(member.getPosY() - cM[1]), totalAngularAcceleration * (member.getPosX() - cM[0])};
+            double[] v = new double[]{totalAngularVelocity * -(member.newposY - cM[1]), totalAngularVelocity * (member.newposX - cM[0])};
+            double[] a = new double[]{totalAngularAcceleration * -(member.newposY - cM[1]), totalAngularAcceleration * (member.newposX - cM[0])};
 
             member.newvX = totalLinearVelocity[0] + v[0];
             member.newvY = totalLinearVelocity[1] + v[1];
@@ -96,6 +110,26 @@ class CompoundBody {
         }
         controllerJerk[0] = 0.0;
         controllerJerk[1] = 0.0;
+    }
+    public void spaceProperly() {
+        for (int i = 0; i < members.size(); i++) {
+            Rigidbody member = members.get(i);
+            member.newposX = cM[0] + memberOffsets[2 * i];
+            member.newposY = cM[1] + memberOffsets[2 * i + 1];
+        }
+    }
+    public void rotateAroundCenter(double theta) {
+        if (!lockedRotation) {
+            double cos = Math.cos(theta);
+            double sin = Math.sin(theta);
+
+            for (int i = 0; i < members.size(); i++) {
+                double x = memberOffsets[2 * i];
+                double y = memberOffsets[2 * i + 1];
+                memberOffsets[2 * i] = x * cos - y * sin;
+                memberOffsets[2 * i + 1] = x * sin + y * cos;
+            }
+        }
     }
 
     public void setPosition(double x, double y) {
@@ -110,6 +144,9 @@ class CompoundBody {
         }
         cM[0] = newCM[0];
         cM[1] = newCM[1];
+    }
+    public void changePosition(double x, double y) {
+        setPosition(cM[0] + x, cM[1] + y);
     }
     public void setVelocity(double vx, double vy) {
         for (Rigidbody member : members) {

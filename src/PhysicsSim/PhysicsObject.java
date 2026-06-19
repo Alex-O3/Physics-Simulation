@@ -305,14 +305,23 @@ public class PhysicsObject {
      * @throws Exception if this object does not store angular velocity (i.e. softbody).
      */
     public void setAngularVelocity(double angularV) throws Exception {
-         switch(whatAmI.getFirstString()) {
-             case("Rigidbody"): {
-                 rigidbody.setCompoundAngularV(angularV);
-                 break;
-             }
-             default:
-                 throw new Exception("Physics object (softbody likely) does not store angular movement.");
-         }
+        if (whatAmI.getFirstString().equals("Rigidbody")) {
+            rigidbody.setCompoundAngularV(angularV);
+        } else {
+            throw new Exception("Physics object (softbody likely) does not store angular movement.");
+        }
+    }
+    /**
+     *
+     * @param angularA double to set this object's, or its compound body's if applicable, initial angular acceleration. This does not apply a momentary acceleration, but rather a constant acceleration until changed again.
+     * @throws Exception if this object does not store initial angular acceleration.
+     */
+    public void setAngularAcceleration(double angularA) throws Exception {
+        if (whatAmI.getFirstString().equals("Rigidbody")) {
+            rigidbody.setCompoundInitialAngularA(angularA);
+        } else {
+            throw new Exception("Physics object (softbody likely) does not store angular movement.");
+        }
     }
 
     /**
@@ -375,9 +384,9 @@ public class PhysicsObject {
          switch(whatAmI.getFirstString()) {
              case("Rigidbody"): {
                  for (int i = 0; i < rigidbody.collidingIDs.size(); i = i + 1) {
-                     if (rigidbody.collidingIDs.get(i) >= 0) {
-                         if (Rigidbody.get(rigidbody.collidingIDs.get(i)).isHitbox) continue;
-                         PhysicsObject other = Simulation.get(whatAmI.getThirdInt()).getObject("Rigidbody", rigidbody.collidingIDs.get(i));
+                     if (rigidbody.collidingIDs.get(i)[0] >= 0) {
+                         if (Rigidbody.get(rigidbody.collidingIDs.get(i)[0]).isHitbox) continue;
+                         PhysicsObject other = Simulation.get(whatAmI.getThirdInt()).getObject("Rigidbody", rigidbody.collidingIDs.get(i)[0]);
                          returnArray.add(other);
                          if (other.rigidbody.parentSoftbody != -1) {
                              PhysicsObject otherSoftbody = Simulation.get(whatAmI.getThirdInt()).getObject("Softbody", other.rigidbody.parentSoftbody);
@@ -604,6 +613,8 @@ public class PhysicsObject {
                 double mass = (density * rigidbody.getArea()) / 2500.0;
                 rigidbody.inertia = rigidbody.inertia * (mass / rigidbody.mass);
                 rigidbody.mass = mass;
+
+                rigidbody.refreshCompoundBody();
                 break;
             }
             case("Softbody"): {
@@ -636,6 +647,14 @@ public class PhysicsObject {
         catch (Exception e) {
             System.out.println(e);
         }
+    }
+
+    /**
+     * Sets a name for this object that it can be referred to by instead of an ID. If another object exists by this name, that name is replaced.
+     * @param name
+     */
+    public void setName(String name) {
+        Simulation.get(whatAmI.getThirdInt()).namedObjects.put(name, this);
     }
 
     /**

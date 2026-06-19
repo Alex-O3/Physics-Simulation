@@ -7,10 +7,10 @@ public interface Script {
     /**
      * Runs before each simulation step.
      */
-    void runBefore();
+    void runBefore(double dt);
 
     /**
      * Runs after each simulation step.
      */
-    void runAfter();
+    void runAfter(double dt);
 }

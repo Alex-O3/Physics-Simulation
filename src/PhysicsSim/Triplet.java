@@ -21,6 +21,8 @@ class Triplet {
     private int[] thirdIntArray;
     private RigidbodyGeometries thirdRigidbodyGeometries;
     private double thirdDouble;
+    private Rigidbody body1;
+    private Rigidbody body2;
     public Triplet(RigidbodyGeometries a, int[] b, int[] c) {
         firstRigidbodyGeometries = a;
         secondIntArray = b;
@@ -44,6 +46,28 @@ class Triplet {
     public Triplet(double[] a, double[] b) {
         firstDoubleArray = a;
         secondDoubleArray = b;
+    }
+    public Triplet(double[] a, double[] b, double c) {
+        firstDoubleArray = a;
+        secondDoubleArray = b;
+        thirdDouble = c;
+    }
+    public Triplet(double[] a, double[] b, double[] c) {
+        firstDoubleArray = a;
+        secondDoubleArray = b;
+        thirdDoubleArray = c;
+    }
+    public Triplet(double[] a, double[] b, double[] c, Rigidbody joint1, Rigidbody joint2) {
+        firstDoubleArray = a;
+        secondDoubleArray = b;
+        thirdDoubleArray = c;
+        body1 = joint1;
+        body2 = joint2;
+    }
+    public Triplet(int a, double b, double c) {
+        firstInt = a;
+        secondDouble = b;
+        thirdDouble = c;
     }
     public Triplet(boolean a, double[] b, double[] c) {
         firstBoolean = a;
@@ -71,6 +95,13 @@ class Triplet {
         thirdInt = c;
     }
 
+    public Rigidbody getJoint1() {
+        return body1;
+    }
+    public Rigidbody getJoint2() {
+        return body2;
+    }
+
     public boolean getFirstBoolean() {
         return(firstBoolean);
     }
@@ -78,7 +109,7 @@ class Triplet {
         return(firstDoubleArray);
     }
     public Double[] getFirstDoubleArrayReference() {
-        return(new Double[]{firstDoubleArray[0], firstDoubleArray[1]});
+        return toReferenceType(firstDoubleArray);
     }
     public String getFirstString() {
         return(firstString);
@@ -94,7 +125,7 @@ class Triplet {
         return(secondDoubleArray);
     }
     public Double[] getSecondDoubleArrayReference() {
-        return(new Double[]{secondDoubleArray[0], secondDoubleArray[1]});
+        return toReferenceType(secondDoubleArray);
     }
     public String getSecondString() {
         return(secondString);
@@ -111,11 +142,19 @@ class Triplet {
         return(thirdDoubleArray);
     }
     public Double[] getThirdDoubleArrayReference() {
-        return (new Double[]{thirdDoubleArray[0], thirdDoubleArray[1]});
+        return toReferenceType(thirdDoubleArray);
     }
     public int getThirdInt() {
         return(thirdInt);
     }
     public int[] getThirdIntArray() {return(thirdIntArray);}
     public double getThirdDouble() {return(thirdDouble);}
+
+    private Double[] toReferenceType(double[] arr) {
+        Double[] result = new Double[arr.length];
+        for (int i = 0; i < arr.length; i++) {
+            result[i] = arr[i];
+        }
+        return result;
+    }
 }

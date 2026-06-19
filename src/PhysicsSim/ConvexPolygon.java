@@ -1,5 +1,7 @@
 package PhysicsSim;
 
+import java.util.Arrays;
+
 class ConvexPolygon { //this class is closely tied to the Polygon class
     private double[] x;
     private double[] y;
@@ -259,29 +261,36 @@ class ConvexPolygon { //this class is closely tied to the Polygon class
         //determine point of contact, accounting for potentially parallel edges
         double[] pointOfContact = new double[]{Double.NaN, Double.NaN};
         double[] MTV = new double[]{Double.NaN, Double.NaN};
+        if (referenceEdgeIndex == -1 || incidentEdgeIndex == -1) {
+            intersecting = false;
+        }
         if (intersecting) {
             if (incidentOnOther) {
-                pointOfContact = new double[]{otherX[incidentEdgeIndex], otherY[incidentEdgeIndex]};
-                double ldot = otherX[mod(incidentEdgeIndex - 1, otherConvex.indices.length)] * selectedNormal[0] + otherY[mod(incidentEdgeIndex - 1, otherConvex.indices.length)] * selectedNormal[1];
-                double rdot = otherX[mod(incidentEdgeIndex + 1, otherConvex.indices.length)] * selectedNormal[0] + otherY[mod(incidentEdgeIndex + 1, otherConvex.indices.length)] * selectedNormal[1];
+                pointOfContact = new double[]{0.0, 0.0, otherX[incidentEdgeIndex], otherY[incidentEdgeIndex]};
+                double[] lPoint = new double[]{otherX[mod(incidentEdgeIndex - 1, otherConvex.indices.length)], otherY[mod(incidentEdgeIndex - 1, otherConvex.indices.length)]};
+                double[] rPoint = new double[]{otherX[mod(incidentEdgeIndex + 1, otherConvex.indices.length)], otherY[mod(incidentEdgeIndex + 1, otherConvex.indices.length)]};
+                double ldot = lPoint[0] * selectedNormal[0] + lPoint[1] * selectedNormal[1];
+                double rdot = rPoint[0] * selectedNormal[0] + rPoint[1] * selectedNormal[1];
                 if (Math.abs(rdot - overlapAssociatedDot) <= parallelEdgeTolerance) {
-                    pointOfContact[0] = 0.5 * (pointOfContact[0] + otherX[mod(incidentEdgeIndex + 1, otherConvex.indices.length)]);
-                    pointOfContact[1] = 0.5 * (pointOfContact[1] + otherY[mod(incidentEdgeIndex + 1, otherConvex.indices.length)]);
+                    pointOfContact[2] = 0.5 * (pointOfContact[2] + rPoint[0]);
+                    pointOfContact[3] = 0.5 * (pointOfContact[3] + rPoint[1]);
                 } else if (Math.abs(ldot - overlapAssociatedDot) <= parallelEdgeTolerance) {
-                    pointOfContact[0] = 0.5 * (pointOfContact[0] + otherX[mod(incidentEdgeIndex - 1, otherConvex.indices.length)]);
-                    pointOfContact[1] = 0.5 * (pointOfContact[1] + otherY[mod(incidentEdgeIndex - 1, otherConvex.indices.length)]);
+                    pointOfContact[2] = 0.5 * (pointOfContact[2] + lPoint[0]);
+                    pointOfContact[3] = 0.5 * (pointOfContact[3] + lPoint[1]);
                 }
             }
             else {
-                pointOfContact = new double[]{myX[incidentEdgeIndex], myY[incidentEdgeIndex]};
-                double ldot = myX[mod(incidentEdgeIndex - 1, indices.length)] * selectedNormal[0] + myY[mod(incidentEdgeIndex - 1, indices.length)] * selectedNormal[1];
-                double rdot = myX[mod(incidentEdgeIndex + 1, indices.length)] * selectedNormal[0] + myY[mod(incidentEdgeIndex + 1, indices.length)] * selectedNormal[1];
+                pointOfContact = new double[]{myX[incidentEdgeIndex], myY[incidentEdgeIndex], 0.0, 0.0};
+                double[] lPoint = new double[]{myX[mod(incidentEdgeIndex - 1, indices.length)], myY[mod(incidentEdgeIndex - 1, indices.length)]};
+                double[] rPoint = new double[]{myX[mod(incidentEdgeIndex + 1, indices.length)], myY[mod(incidentEdgeIndex + 1, indices.length)]};
+                double ldot = lPoint[0] * selectedNormal[0] + lPoint[1] * selectedNormal[1];
+                double rdot = rPoint[0] * selectedNormal[0] + rPoint[1] * selectedNormal[1];
                 if (Math.abs(rdot - overlapAssociatedDot) <= parallelEdgeTolerance) {
-                    pointOfContact[0] = 0.5 * (pointOfContact[0] + myX[mod(incidentEdgeIndex + 1, indices.length)]);
-                    pointOfContact[1] = 0.5 * (pointOfContact[1] + myY[mod(incidentEdgeIndex + 1, indices.length)]);
+                    pointOfContact[0] = 0.5 * (pointOfContact[0] + rPoint[0]);
+                    pointOfContact[1] = 0.5 * (pointOfContact[1] + rPoint[1]);
                 } else if (Math.abs(ldot - overlapAssociatedDot) <= parallelEdgeTolerance) {
-                    pointOfContact[0] = 0.5 * (pointOfContact[0] + myX[mod(incidentEdgeIndex - 1, indices.length)]);
-                    pointOfContact[1] = 0.5 * (pointOfContact[1] + myY[mod(incidentEdgeIndex - 1, indices.length)]);
+                    pointOfContact[0] = 0.5 * (pointOfContact[0] + lPoint[0]);
+                    pointOfContact[1] = 0.5 * (pointOfContact[1] + lPoint[1]);
                 }
             }
 
@@ -290,7 +299,20 @@ class ConvexPolygon { //this class is closely tied to the Polygon class
             multiplier = Rigidbody.get(otherConvex.parentRigidbody).isMovable() ? multiplier : 1.0;
             multiplier = incidentOnOther ? -multiplier : multiplier;
             double MTV_EPSILON = Rigidbody.get(parentRigidbody).sim.MTV_EPSILON;
-            MTV = new double[]{(overlap + MTV_EPSILON) * multiplier * selectedNormal[0], (overlap + MTV_EPSILON) * multiplier * selectedNormal[1]};
+            MTV = new double[]{overlap * selectedNormal[0], overlap * selectedNormal[1]};
+            if (incidentOnOther) {
+                pointOfContact[0] = pointOfContact[2] + MTV[0];
+                pointOfContact[1] = pointOfContact[3] + MTV[1];
+            }
+            else {
+                pointOfContact[2] = pointOfContact[0] + MTV[0];
+                pointOfContact[3] = pointOfContact[1] + MTV[1];
+            }
+            MTV[0] *= multiplier;
+            MTV[1] *= multiplier;
+            multiplier = 1.0 + MTV_EPSILON / Math.sqrt(MTV[0] * MTV[0] + MTV[1] * MTV[1]);
+            MTV[0] *= multiplier;
+            MTV[1] *= multiplier;
 
             if (otherConvex.faceEdgeIndex != -1) {
                 if ((!incidentOnOther && otherConvex.faceEdgeIndex != referenceEdgeIndex) ||
@@ -303,10 +325,6 @@ class ConvexPolygon { //this class is closely tied to the Polygon class
                         && mod(incidentEdgeIndex - 1, indices.length) != faceEdgeIndex)) passFace(otherConvex.parentPolygon.getParent(), parentPolygon.getParent());
             }
         }
-
-
-        //now that the ideal normal and non-shifted point of contact has been found, find the incident edge from its index
-        //and which of the two options branching from that point is more parallel to the reference edge
 
         return new Triplet(intersecting, MTV, pointOfContact);
 
@@ -401,16 +419,14 @@ class ConvexPolygon { //this class is closely tied to the Polygon class
             }
         }
 
-        double[] pointOfContact = new double[]{Double.NaN, Double.NaN};
-        double[] MTV = new double[]{Double.NaN, Double.NaN};
+        double[] pointOfContact = new double[4];
+        double[] MTV = new double[2];
         if (intersecting && (incidentOnOther || incidentEdgeIndex != -1)) {
             if (incidentOnOther) {
-                pointOfContact[0] = otherX - radius * selectedNormal[0];
-                pointOfContact[1] = otherY - radius * selectedNormal[1];
+                pointOfContact = new double[]{0.0, 0.0, otherX - radius * selectedNormal[0], otherY - radius * selectedNormal[1]};
             }
             else {
-                pointOfContact[0] = myX[incidentEdgeIndex];
-                pointOfContact[1] = myY[incidentEdgeIndex];
+                pointOfContact = new double[]{myX[incidentEdgeIndex], myY[incidentEdgeIndex], 0.0, 0.0};
             }
 
             //find minimum translation vector and distribute evenly among each body according to its share of the total system mass
@@ -418,7 +434,20 @@ class ConvexPolygon { //this class is closely tied to the Polygon class
             multiplier = otherCircle.getParent().isMovable() ? multiplier : 1.0;
             multiplier = incidentOnOther ? -multiplier : multiplier;
             double MTV_EPSILON = Rigidbody.get(parentRigidbody).sim.MTV_EPSILON;
-            MTV = new double[]{(overlap + MTV_EPSILON) * multiplier * selectedNormal[0], (overlap + MTV_EPSILON) * multiplier * selectedNormal[1]};
+            MTV = new double[]{overlap * selectedNormal[0], overlap * selectedNormal[1]};
+            if (incidentOnOther) {
+                pointOfContact[0] = pointOfContact[2] + MTV[0];
+                pointOfContact[1] = pointOfContact[3] + MTV[1];
+            }
+            else {
+                pointOfContact[2] = pointOfContact[0] + MTV[0];
+                pointOfContact[3] = pointOfContact[1] + MTV[1];
+            }
+            MTV[0] *= multiplier;
+            MTV[1] *= multiplier;
+            multiplier = 1.0 + MTV_EPSILON / Math.sqrt(MTV[0] * MTV[0] + MTV[1] * MTV[1]);
+            MTV[0] *= multiplier;
+            MTV[1] *= multiplier;
 
             if (faceEdgeIndex != -1) {
                 if ((incidentOnOther && faceEdgeIndex != referenceEdgeIndex) ||
@@ -430,9 +459,27 @@ class ConvexPolygon { //this class is closely tied to the Polygon class
         return new Triplet(intersecting, MTV, pointOfContact);
     }
     private void passFace(Rigidbody other, Rigidbody face) {
-        if (!other.geometry.rememberedFacesToPass.contains(face.ID)) other.geometry.rememberedFacesToPass.add(face.ID);
+        int[] faceID = new int[]{face.ID};
+        for (int[] rememberedFace : other.geometry.rememberedFacesToPass) {
+            if (Arrays.equals(rememberedFace, faceID)) return;
+        }
+        other.geometry.rememberedFacesToPass.add(faceID);
     }
-    public Triplet checkCollisions(double[] jointPosX, double[] jointPosY, double[] nX, double[] nY, double jointCompoundMass, boolean jointIsMovable) {
+    private void passFace(Joint solidJoint, Rigidbody face) {
+        int attachmentID = -1;
+        for (int i = 0; i < solidJoint.parent.attachments.size(); i++) {
+            if (solidJoint.parent.attachments.get(i) == solidJoint) {
+                attachmentID = i;
+                break;
+            }
+        }
+        int[] jointID = new int[]{-solidJoint.parent.ID - 2, -solidJoint.connection.ID - 2, attachmentID};
+        for (int[] rememberedJoint : face.geometry.rememberedFacesToPass) {
+            if (Arrays.equals(rememberedJoint, jointID)) return;
+        }
+        face.geometry.rememberedFacesToPass.add(jointID);
+    }
+    public Triplet checkCollisions(double[] jointPosX, double[] jointPosY, double[] nX, double[] nY, double jointCompoundMass, boolean jointIsMovable, Joint solidJoint) {
         double parallelEdgeTolerance = parentPolygon.getParent().sim.PARALLEL_EDGE_TOLERANCE;
 
         boolean intersecting = true;
@@ -592,6 +639,12 @@ class ConvexPolygon { //this class is closely tied to the Polygon class
             multiplier = incidentOnOther ? -multiplier : multiplier;
             double MTV_EPSILON = Rigidbody.get(parentRigidbody).sim.MTV_EPSILON;
             MTV = new double[]{(overlap + MTV_EPSILON) * multiplier * selectedNormal[0], (overlap + MTV_EPSILON) * multiplier * selectedNormal[1]};
+
+            if (faceEdgeIndex != -1) {
+                if ((incidentOnOther && faceEdgeIndex != referenceEdgeIndex) ||
+                        (!incidentOnOther && incidentEdgeIndex != faceEdgeIndex
+                                && mod(incidentEdgeIndex - 1, indices.length) != faceEdgeIndex)) passFace(solidJoint, parentPolygon.getParent());
+            }
         }
 
 
