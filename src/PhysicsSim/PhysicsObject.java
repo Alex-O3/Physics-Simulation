@@ -12,7 +12,7 @@ import java.util.ArrayList;
  * contain all bodies connected by constraint-based joints.<br>
  */
 public class PhysicsObject {
-     private final Triplet whatAmI;
+     protected final Triplet whatAmI;
      protected final Rigidbody rigidbody;
      protected final Softbody softbody;
      protected Material material;
@@ -425,7 +425,7 @@ public class PhysicsObject {
      */
     public PhysicsObject getAttachment(int index) {
         if (whatAmI.getFirstString().equals("Rigidbody") && index >= 0 && index < rigidbody.attachments.size()) {
-            int ID = Simulation.get(whatAmI.getThirdInt()).rigidbodyObjectsIDToGlobalID.get(rigidbody.attachments.get(index).connection.ID);
+            int ID = Simulation.rigidbodyObjectsIDToGlobalID.get(rigidbody.attachments.get(index).connection.ID);
             return Simulation.get(whatAmI.getThirdInt()).getObject(ID);
         }
         return null;

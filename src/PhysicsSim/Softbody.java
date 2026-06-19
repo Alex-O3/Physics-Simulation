@@ -126,7 +126,7 @@ class Softbody {
             //create a point at the proposed location as the seed from which the lattice triangular structure of the softbody will be generated
             Rigidbody seedPoint = new Rigidbody(new Circle(pointRadius), new double[]{pointTest[0], pointTest[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 1.0, color, simID);
             Simulation.get(simID).physicsObjects.add(new PhysicsObject(seedPoint));
-            Simulation.get(simID).rigidbodyObjectsIDToGlobalID.put(Rigidbody.num, Simulation.get(simID).physicsObjects.size() - 1);
+            Simulation.rigidbodyObjectsIDToGlobalID.add(Simulation.get(simID).physicsObjects.size() - 1);
             addMember(seedPoint, onBoundary);
 
             //start the lattice structure generation process
@@ -147,7 +147,7 @@ class Softbody {
                     Color a = color;
                     Rigidbody generatedPoint = new Rigidbody(new Circle(pointRadius), new double[]{x, y, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 1.0, a, simID);
                     Simulation.get(simID).physicsObjects.add(new PhysicsObject(generatedPoint));
-                    Simulation.get(simID).rigidbodyObjectsIDToGlobalID.put(Rigidbody.num ,Simulation.get(simID).physicsObjects.size() - 1);
+                    Simulation.rigidbodyObjectsIDToGlobalID.add(Simulation.get(simID).physicsObjects.size() - 1);
                     addMember(generatedPoint, true);
                     if (lastIndex != -1) Rigidbody.get(lastIndex).springAttachSoftbodyConstruction(generatedPoint);
                     else firstIndex = generatedPoint.ID;

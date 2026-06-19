@@ -1357,7 +1357,7 @@ class Rigidbody {
                 Rigidbody generatedPoint = new Rigidbody(new Circle(Softbody.get(parentSoftbody).getPointRadius()),
                         new double[]{x[i], y[i], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, 1.0, Softbody.get(parentSoftbody).getColor(), simID);
                 Simulation.get(simID).physicsObjects.add(new PhysicsObject(generatedPoint));
-                Simulation.get(simID).rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, Simulation.get(simID).physicsObjects.size() - 1);
+                Simulation.rigidbodyObjectsIDToGlobalID.add(Simulation.get(simID).physicsObjects.size() - 1);
                 springAttach(generatedPoint, 1.0, 1.0);
                 Softbody.get(parentSoftbody).addMember(generatedPoint, futureBoundary);
                 generatedPoints.add(generatedPoint);

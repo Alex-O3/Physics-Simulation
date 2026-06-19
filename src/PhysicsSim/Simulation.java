@@ -43,9 +43,9 @@ public class Simulation {
     private static final ArrayList<Simulation> simulations = new ArrayList<>();
     final ArrayList<SAPCell> sapCells = new ArrayList<>();
     public final ArrayList<BVHTreeRoot> BVHtrees = new ArrayList<>();
-    final HashMap<Integer, Integer> rigidbodyObjectsIDToGlobalID = new HashMap<>();
+    final static ArrayList<Integer> rigidbodyObjectsIDToGlobalID = new ArrayList<>();
     final HashMap<String, Hitbox> rigidbodyHitboxesNamesToObjectID = new HashMap<>();
-    final ArrayList<Integer> softbodyObjectsIDToGlobalID = new ArrayList<>();
+    final static ArrayList<Integer> softbodyObjectsIDToGlobalID = new ArrayList<>();
     final ArrayList<PhysicsObject> physicsObjects = new ArrayList<>();
     final HashMap<String, PhysicsObject> namedObjects = new HashMap<>();
     final ArrayList<Hitbox> hitboxes = new ArrayList<>();
@@ -512,7 +512,7 @@ public class Simulation {
     public PhysicsObject addRigidbodyPolygon(double[] x, double[] y, double[] motion, double mass, Color color) {
         PhysicsObject physicsObject = new PhysicsObject(new Rigidbody(new Polygon(x, y, MTV_EPSILON), motion, mass, color, ID));
         physicsObjects.add(physicsObject);
-        rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+        rigidbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
         return physicsObject;
     }
     /**
@@ -549,7 +549,7 @@ public class Simulation {
     public PhysicsObject addRigidbodyCircle(double[] motion, double radius, double mass, Color color) {
         PhysicsObject physicsObject = new PhysicsObject(new Rigidbody(new Circle(radius), motion, mass, color, ID));
         physicsObjects.add(physicsObject);
-        rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+        rigidbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
         return physicsObject;
     }
 
@@ -570,7 +570,7 @@ public class Simulation {
         obstacle.setIsMovable(false);
         PhysicsObject physicsObject = new PhysicsObject(obstacle);
         physicsObjects.add(physicsObject);
-        rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+        rigidbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
         return physicsObject;
     }
     /**
@@ -599,7 +599,7 @@ public class Simulation {
         obstacle.setIsMovable(false);
         PhysicsObject physicsObject = new PhysicsObject(obstacle);
         physicsObjects.add(physicsObject);
-        rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+        rigidbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
         return physicsObject;
     }
     /**
@@ -632,7 +632,7 @@ public class Simulation {
         obstacle.draw = false;
         Hitbox hitbox = new Hitbox(obstacle, name);
         hitboxes.add(hitbox);
-        rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+        rigidbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
         rigidbodyHitboxesNamesToObjectID.put(name, hitbox);
         return hitbox;
     }
@@ -664,7 +664,7 @@ public class Simulation {
         obstacle.draw = false;
         Hitbox hitbox = new Hitbox(obstacle, name);
         hitboxes.add(hitbox);
-        rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+        rigidbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
         rigidbodyHitboxesNamesToObjectID.put(name, hitbox);
         return hitbox;
     }
@@ -707,7 +707,7 @@ public class Simulation {
         face.setIsMovable(false);
         PhysicsObject physicsObject = new PhysicsObject(face);
         physicsObjects.add(physicsObject);
-        rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+        rigidbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
         return physicsObject;
     }
     /**
@@ -846,7 +846,7 @@ public class Simulation {
             ropePoint.lockRotation(true);
             PhysicsObject physicsObject = new PhysicsObject(ropePoint);
             physicsObjects.add(physicsObject);
-            rigidbodyObjectsIDToGlobalID.put(Rigidbody.num - 1, physicsObjects.size() - 1);
+            rigidbodyObjectsIDToGlobalID.add(physicsObjects.size() - 1);
             returnArray.add(physicsObject);
             ropePoints.add(ropePoint);
             if (i != 0) {
@@ -897,11 +897,17 @@ public class Simulation {
         switch (type) {
             case "Rigidbody": {
                 PhysicsObject physicsObject = physicsObjects.get(rigidbodyObjectsIDToGlobalID.get(IDinType));
-                if (!physicsObject.rigidbody.isHitbox) return physicsObject;
+                if (!physicsObject.rigidbody.isHitbox && Rigidbody.get(IDinType).sim == this) return physicsObject;
+                break;
             }
-            case "Softbody": return physicsObjects.get(softbodyObjectsIDToGlobalID.get(IDinType));
+            case "Softbody": {
+                PhysicsObject softbody = physicsObjects.get(softbodyObjectsIDToGlobalID.get(IDinType));
+                if (softbody.whatAmI.getThirdInt() == ID) return softbody;
+                break;
+            }
             default: throw new Exception("getObject(String type, int localID) --> either 'type' does not exist or 'IDinType' is out of bounds.");
         }
+        throw new Exception("getObject(String type, int localID) --> either 'type' does not exist or 'IDinType' is out of bounds.");
     }
     /**
      * Get the physicsObject that was assigned this name.
@@ -944,7 +950,7 @@ public class Simulation {
     public Hitbox getHitbox(String type, int IDinType) throws Exception {
         if (type.equals("Rigidbody")) {
             Hitbox hitbox = hitboxes.get(rigidbodyObjectsIDToGlobalID.get(IDinType));
-            if (hitbox.rigidbody.isHitbox) return hitbox;
+            if (hitbox.rigidbody.isHitbox && Rigidbody.get(IDinType).sim == this) return hitbox;
         }
         throw new Exception("getHitbox(String type, int localID) --> either 'type' does not exist or 'IDinType' is out of bounds.");
     }
